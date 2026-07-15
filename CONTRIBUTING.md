@@ -16,12 +16,11 @@
 
 ## 二、Backlog：还没做的（按难度/优先级）
 
-### B1. EW 工具补全（120+ 工具，目前只翻小子集）— 难度高·量大·非核心
-- **进度（2026-07-15）**：经济类第一批已完成：支付/偷窃、Victory Arch 提案周期、Central Bank 存贷共 10 个 EW 命名工具；均接入 `EconomySpace`，保留原 AS 兼容接口。其余类别仍按批次推进，B1 整体未完成。
-- **缺什么**：EW 有 120+ 工具 / ~19 类（`tools/` 目录 README + 各类）。afi 现在只翻译了支撑 ew-subset/ew_full 跑通的小子集（observe/recharge/commit_crime/propose/vote/execute_skill_script/send_message 等）。
-- **为什么没做**：纯内容工程，非平台核心；够验证闭环。
-- **怎么做**：参考 EW 源（`docs/ew-afi-analysis.md` 有 EW 工具清单）→ 在 `afi/world/` 加 skill/tool 定义 → 接进 AS agent 的 codegen_router。**不要一次性全翻**，按类分批（如先"经济类"、再"社交类"）。
-- **验收**：新工具能被 agent 调用（trace 出现 `react.action`）；该工具在 M4 工具多样性里被计入。
+### B1. EW 工具补全 ✅（公开目录 113/113；EW 项目口径“120+”）
+- **完成（2026-07-15）**：EW 当前公开 `tools/README.md` 共 113 个唯一名称，已 113/113 注册。经济类走 `EconomySpace`；其余 101 个由可扩展 `EWToolSpace` 覆盖，并接入 `ew_full.yaml`。
+- **边界说明**：EW 的“120+”包含演进中的历史/内部工具，公开仓库当前只能逐项核验 113 个。实时新闻、网页、论文、天气、图片生成采用 `in_progress` provider 请求接口；未配置 provider 时不伪造结果。
+- **实现**：`afi/world/ew_tools.py` 固化可审计目录；`EWToolSpace` 采用声明式注册、分类门控、有界查询、同 step 幂等、Replay 快照和 resume；agent 操作说明随模块分发。
+- **验收**：覆盖测试锁定 113/113；AgentSociety validator 的 scanner/router/registry 全通过；标准 `react.action` spans 中的新工具由 M4 正确去重计数。
 - **注意**：工具名/语义要贴 EW 原文，别自创；EW 是研究用 license，别直接搬代码，按设定重写。
 
 ### B2. MobilitySpace 地图（M3 从代理升真算）— 难度高·依赖重
@@ -106,7 +105,7 @@
 ```
 平台闭环 ✅ 100%（A1-A4）
   ├ AWI 9 族：6 真算 ✅ | 3 代理 ⏳(B2 M3 / B3 M7 / B4 M6)
-  ├ EW 设定：子集 ✅ | 120+工具 ⏳(B1) | 地图 ⏳(B2)
+  ├ EW 设定：公开工具 113/113 ✅(B1) | 地图 ⏳(B2)
   ├ 长时程：压缩版 ✅ | 全量 ⏳(B8 成本)
   ├ 多模型：3/5 ✅ | 统计power ⏳(B8)
   ├ 后端：AS ✅ | Concordia ⏳(B6)
@@ -115,4 +114,4 @@
   └ 论文：⏳(B10)
 ```
 
-挑一个 `⏳` 开干。建议入门顺序：**B9（单测，最低门槛）→ B5（pydantic DSL）→ B3/B4（M7/M6 真算，中等）→ B6（Concordia）→ B1/B2（工具/地图，量大）**。
+挑一个 `⏳` 开干。建议入门顺序：**B9（单测，最低门槛）→ B5（pydantic DSL）→ B3/B4（M7/M6 真算，中等）→ B6（Concordia）→ B2（地图，量大）**。

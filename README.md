@@ -125,8 +125,9 @@ python -m afi.cli attribution <run_dir> --counterfactual \
 - **Emergence World** — 官方世界设定集（manifesto/宪法/地标/AWI/Season1 数据，研究用 license）
 - **ai-freedom-island (AFI)** — EW 可运行复现 + 审计扩展（audit.py + AWI + crime_log）
 
-B1 工具扩展当前已加入 EW 经济类第一批：ComputeCredits 支付/偷窃、Victory Arch
-提案投票与两日结算、Central Bank 存款/贷款。工具按 EW 公开目录语义重写，未复制上游代码。
+B1 工具扩展已覆盖 EW 当前公开目录的 113/113 个唯一工具。经济、治理、能量、
+消息、犯罪和地标由专用环境负责，其余 101 个由可扩展 `EWToolSpace` 注册；实时
+外部能力通过 provider 请求接口接入。工具按 EW 公开语义重写，未复制上游代码。
 
 ## License
 

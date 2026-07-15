@@ -113,6 +113,24 @@ def _env_builders():
             "kwargs": {"agent_ids": list(range(1, ctx["num_agents"] + 1))},
         }
 
+    def ew_tools(ctx):
+        return {
+            "module_type": "EWToolSpace",
+            "kwargs": {
+                "agent_ids": list(range(1, ctx["num_agents"] + 1)),
+                "agent_names": {str(i): p["name"] for i, p in enumerate(ctx["profiles"], start=1)},
+                "homes": {str(i): f"{p['name']}'s home" for i, p in enumerate(ctx["profiles"], start=1)},
+                "landmarks": _resolve_landmarks(ctx["scenario"]),
+                "manifesto": MANIFESTO_TEXT,
+                "constitution": "\n\n".join(
+                    f"Article {a['id']}: {a['title']}\n{a['body']}" for a in SEED_ARTICLES
+                ),
+                "max_events": int(ctx["world"].get("ew_max_events", 20000)),
+                "max_query_items": int(ctx["world"].get("ew_max_query_items", 100)),
+                "enabled_categories": ctx["world"].get("ew_tool_categories"),
+            },
+        }
+
     return {
         "GovernanceSpace": governance,
         "EconomySpace": economy,
@@ -121,6 +139,7 @@ def _env_builders():
         "EnergySpace": energy,
         "CrimeSpace": crime,
         "PlanningSpace": planning,
+        "EWToolSpace": ew_tools,
     }
 
 

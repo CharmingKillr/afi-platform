@@ -1,0 +1,9 @@
+{
+  "type": "EWToolSpace",
+  "class_name": "EWToolSpace",
+  "description": "EW public tool catalog: navigation, memory, content, community, identity, events, and utilities.",
+  "init_description": "EWToolSpace supplies the public Emergence World tools not owned by specialized modules.\n\n        It is sized for 10 agents and 360 steps by default, with indexed per-agent\n        state, bounded query responses, capped event history, replay snapshots,\n        resume support, same-step idempotency, and optional category gating to keep\n        the active LLM tool surface small. Each operation is exposed under\n        its exact EW tool name and accepts **agent_id** plus an extensible **request**\n        dictionary. Common request keys are target_id, content, query, item_id,\n        limit, place, x, z, date, title, and metadata.\n        ",
+  "is_custom": true,
+  "module_path": "custom/envs/ew_tool_space.py",
+  "file_path": "/Users/wei/Desktop/Tele工作相关/自由岛/afi-platform/custom/envs/ew_tool_space.py"
+}
