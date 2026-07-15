@@ -100,7 +100,8 @@ AGENTSOCIETY_LLM_API_KEY=test-key python -m pytest -q
 ```
 
 迁移复核环境为 CPython 3.12.13、`agentsociety2==2.8.2`，结果为 `11 passed`。
-`.agentsociety/custom_env_skill/runs/b1-ew-complete/` 同时保留环境扫描、测试和注册验证产物。
+环境扫描、测试和注册均通过；对应的 `.agentsociety/custom_env_skill/runs/` 生成产物
+未纳入 PR，避免把一次性运行记录提交到版本库。
 
 ## 8. 明确边界与未完成项
 

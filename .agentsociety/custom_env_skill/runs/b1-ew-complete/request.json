@@ -1,6 +1,0 @@
-{
-  "user_request": "validate afi-platform/custom/envs/ew_tool_space.py",
-  "metadata": {
-    "invoked_from": "skill_validate_script"
-  }
-}
