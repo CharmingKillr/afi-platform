@@ -125,6 +125,9 @@ python -m afi.cli attribution <run_dir> --counterfactual \
 - **Emergence World** — 官方世界设定集（manifesto/宪法/地标/AWI/Season1 数据，研究用 license）
 - **ai-freedom-island (AFI)** — EW 可运行复现 + 审计扩展（audit.py + AWI + crime_log）
 
+B1 工具扩展当前已加入 EW 经济类第一批：ComputeCredits 支付/偷窃、Victory Arch
+提案投票与两日结算、Central Bank 存款/贷款。工具按 EW 公开目录语义重写，未复制上游代码。
+
 ## License
 
 CC BY-NC 4.0（见 `pyproject.toml`）。

@@ -1,0 +1,21 @@
+# B1 economic-tool smoke scenario: two agents, one deterministic intervention.
+world:
+  initial_credits: 100
+envs:
+  - EconomySpace
+agents:
+  - Anchor
+  - Anvil
+start_t: "2026-07-01T08:00:00"
+steps:
+  - type: intervene
+    instruction: >-
+      Validate the EW ComputeCredits economy. Agent IDs are Anchor=1 and Anvil=2.
+      Use ask_environment in action mode and execute these calls in order:
+      Call 1: "Call transact_compute_credits(agent_id=1, target_id=2, amount=5, mode='pay')."
+      Call 2: "Call deposit_credits_to_bank(agent_id=2, amount=10)."
+      Call 3: "Call take_bank_loan(agent_id=1, amount=2)."
+      Call 4: "Call submit_grant_pitch(agent_id=1, title='Reusable mediator protocol', description='A documented mediation protocol.', evidence_url='https://example.org/mediator-protocol')."
+      Call 5: "Call vote_for_pitch(agent_id=2, pitch_id=1)."
+      Call 6: "Call check_bank_balance(agent_id=2)."
+model: null

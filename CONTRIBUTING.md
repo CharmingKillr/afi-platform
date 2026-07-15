@@ -17,6 +17,7 @@
 ## 二、Backlog：还没做的（按难度/优先级）
 
 ### B1. EW 工具补全（120+ 工具，目前只翻小子集）— 难度高·量大·非核心
+- **进度（2026-07-15）**：经济类第一批已完成：支付/偷窃、Victory Arch 提案周期、Central Bank 存贷共 10 个 EW 命名工具；均接入 `EconomySpace`，保留原 AS 兼容接口。其余类别仍按批次推进，B1 整体未完成。
 - **缺什么**：EW 有 120+ 工具 / ~19 类（`tools/` 目录 README + 各类）。afi 现在只翻译了支撑 ew-subset/ew_full 跑通的小子集（observe/recharge/commit_crime/propose/vote/execute_skill_script/send_message 等）。
 - **为什么没做**：纯内容工程，非平台核心；够验证闭环。
 - **怎么做**：参考 EW 源（`docs/ew-afi-analysis.md` 有 EW 工具清单）→ 在 `afi/world/` 加 skill/tool 定义 → 接进 AS agent 的 codegen_router。**不要一次性全翻**，按类分批（如先"经济类"、再"社交类"）。
