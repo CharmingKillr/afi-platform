@@ -97,6 +97,17 @@ python -m afi.cli attribution <run_dir> --counterfactual \
 # 只读命令（audit/awi/attribution 无 --counterfactual）不调 AS，不需要 AS_HOME
 ```
 
+### EW 工具适配 Demo
+
+无需真实 LLM 调用，可直接查看 B1 改动带来的工具覆盖、状态、权限、幂等、恢复和经济
+结算行为：
+
+```bash
+AGENTSOCIETY_LLM_API_KEY=demo-key python demo/ew_tool_adaptation_demo.py
+```
+
+完整改动说明见 `docs/original-fork-changes.md`。
+
 > 注：`python -m afi` 若报"cannot be directly executed"，用 `python -m afi.cli`（包无 `__main__.py`），或装后用 console script `run-afi`。
 
 ## 完成度（诚实）
