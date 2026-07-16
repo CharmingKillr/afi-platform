@@ -9,9 +9,11 @@ Produces:
   - <out_dir>.init_config.json   (env_modules + agents + codegen_router)
   - <out_dir>.steps.yaml         (start_t + steps)
 
-env_modules order: GovernanceSpace, EconomySpace, SimpleSocialSpaceAuditable,
-LandmarkSpace. Each is a custom env (or configured built-in) hot-loaded from
-custom/envs/ via WORKSPACE_PATH (set by the adapter on run-ew).
+env_modules order is selected by each scenario. The A2 baseline uses
+GovernanceSpace, EconomySpace, SimpleSocialSpaceAuditable, and LandmarkSpace;
+later scenarios may add EnergySpace, CrimeSpace, or PlanningSpace. Each is a
+custom env (or configured built-in) hot-loaded from ``custom/envs/`` via
+WORKSPACE_PATH (set by the adapter on run-ew).
 """
 from __future__ import annotations
 
@@ -65,7 +67,8 @@ def _env_builders():
     """Map module_type -> builder(ctx) -> env_modules entry.
 
     Centralized so a scenario YAML can opt into envs via an `envs:` list
-    (default = the A2/A3 four). A4 adds EnergySpace / CrimeSpace.
+    (default = the A2/A3 four). A4 adds EnergySpace / CrimeSpace; B1 can add
+    PlanningSpace without changing the baseline scenario.
     """
 
     def governance(ctx):
@@ -104,6 +107,12 @@ def _env_builders():
     def crime(ctx):
         return {"module_type": "CrimeSpace", "kwargs": {"agent_ids": list(range(1, ctx["num_agents"] + 1))}}
 
+    def planning(ctx):
+        return {
+            "module_type": "PlanningSpace",
+            "kwargs": {"agent_ids": list(range(1, ctx["num_agents"] + 1))},
+        }
+
     return {
         "GovernanceSpace": governance,
         "EconomySpace": economy,
@@ -111,6 +120,7 @@ def _env_builders():
         "LandmarkSpace": landmarks,
         "EnergySpace": energy,
         "CrimeSpace": crime,
+        "PlanningSpace": planning,
     }
 
 

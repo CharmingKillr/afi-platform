@@ -1,0 +1,17 @@
+# B1 PlanningSpace smoke scenario: one agent exercises all six EW planning tools.
+envs:
+  - PlanningSpace
+agents:
+  - Anchor
+start_t: "2026-07-01T08:00:00"
+steps:
+  - type: intervene
+    instruction: >-
+      Validate the EW planning tools for Anchor (agent_id=1). Use ask_environment
+      in action mode and call these in order: add_todo(agent_id=1,
+      task='Review the mediation notes'); list_todo(agent_id=1);
+      complete_todo(agent_id=1, todo_id=1); add_to_calendar(agent_id=1,
+      title='Community mediation', start_at='2026-07-02T10:00:00',
+      end_at='2026-07-02T11:00:00', description='Facilitate the discussion');
+      check_calendar(agent_id=1); remove_from_calendar(agent_id=1, event_id=1).
+model: null
