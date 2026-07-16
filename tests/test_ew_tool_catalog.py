@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -48,6 +49,17 @@ def test_full_scenario_mounts_catalog_with_scalable_bounds():
     assert module["kwargs"]["max_events"] == 20000
     assert module["kwargs"]["max_query_items"] == 100
     assert module["kwargs"]["enabled_categories"] is None
+
+
+def test_env_module_metadata_is_repository_portable():
+    metadata = json.loads(
+        (ROOT / ".agentsociety" / "env_modules" / "ewtoolspace.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert metadata["module_path"] == "custom/envs/ew_tool_space.py"
+    assert metadata["file_path"] == metadata["module_path"]
+    assert not Path(metadata["file_path"]).is_absolute()
 
 
 def test_category_gating_reduces_active_router_surface():
