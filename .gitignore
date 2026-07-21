@@ -29,6 +29,7 @@ afi_report_*.html
 results/*
 !results/.gitkeep
 agentsociety_data/
+.agentsociety/
 
 # ── demo build artifacts ──────────────────────────────
 demo/_audit_*.html

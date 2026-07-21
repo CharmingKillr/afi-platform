@@ -110,10 +110,22 @@ def test_workspace_restore_preserves_state_and_ids():
             await env.to_workspace(directory)
             restored = cls(agent_ids=[99])
             assert await restored.restore(directory)
+            assert restored._now() == datetime(2026, 7, 1, 8)
             assert (await restored.list_todo(1))["todos"][0]["task"] == "Persistent task"
             assert (await restored.check_calendar(1))["events"][0]["title"] == "Persistent event"
             assert (await restored.add_todo(1, "Second task"))["todo"]["id"] == 2
             assert (await restored.add_to_calendar(1, "Second event", "2026-07-03T10:00:00"))["event"]["id"] == 2
+
+    asyncio.run(run())
+
+
+def test_planning_results_follow_shared_status_contract():
+    async def run():
+        env = _planning_class()(agent_ids=[1])
+        success = await env.add_todo(1, "Contract check")
+        failure = await env.add_todo(99, "Unknown agent")
+        assert success["ok"] is True and success["status"] == "success"
+        assert failure["ok"] is False and failure["status"] == "fail"
 
     asyncio.run(run())
 

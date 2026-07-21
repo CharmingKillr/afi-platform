@@ -23,7 +23,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install afi (no heavy deps; afi's deps are lazy-imported)
-        run: pip install -e . --no-deps
+        run: pip install -e ".[yaml,dev]"
 
       - name: Import smoke (audit/world/backend all import without AS/pyyaml at module load)
         run: |
@@ -41,3 +41,8 @@ jobs:
           python -m afi.cli awi --help
           python -m afi.cli multi-run --help
           python -m afi.cli attribution --help
+
+      - name: Unit and integration-boundary tests
+        env:
+          AGENTSOCIETY_LLM_API_KEY: test-key
+        run: pytest tests/ -q

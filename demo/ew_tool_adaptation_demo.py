@@ -5,16 +5,18 @@ import asyncio
 import importlib.util
 import json
 import os
+import sys
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
+ROOT = Path(__file__).parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "demo-key")
 
 from afi.world.ew_tools import EW_PUBLIC_TOOLS
-
-
-ROOT = Path(__file__).parents[1]
 
 
 def _load_class(relative_path: str, class_name: str):

@@ -314,7 +314,7 @@ python -m afi run-ew scenarios/ew-subset.yaml --run-dir runs/ew_subset --audit
 |---|---|---|---|
 | **平台闭环** | 跑长时程→监控→AWI→跨模型→对标 | A1 骨架→A2 EW 子集→A3 AWI+监控→A4 多模型+对标，全通 | ✅ 100% |
 | **AWI 9 族** | 9 族全真实可算 | M1/M2/M4/M5/M8/M9 全算（6）；M3/M6/M7 代理（3） | 6/9 真 + 3 代理 |
-| **EW 设定翻译** | 宪法/地标/工具/经济/治理 | 公开工具目录 113/113 + 宪法/治理/经济/社交/地标/能量/犯罪 | 公开目录完整；地图/外部 provider 仍有边界 |
+| **EW 设定翻译** | 宪法/地标/工具/经济/治理 | 公开工具目录 113/113 + 宪法/治理/经济/社交/地标/能量/犯罪 | 公开目录与路由完整；逐工具语义、地图/外部 provider 仍有边界 |
 | **长时程** | 15 天 × 10 agent | 15 sim-天（1 步/天压缩）× 5 agent × 3 模型 | 压缩版（非逐小时全量） |
 | **多模型** | 5 世界对照 | 3 百炼模型（qwen-plus/max/turbo） | 3/5（够对照） |
 | **对标 EW** | M1–M9 全对标 Season1 | 仅 M1 有 EW baseline 可对（定性 bucket）；M2–M9 跨模型自对照 | M1 对标 + M2–M9 自对照 |
@@ -327,7 +327,7 @@ python -m afi run-ew scenarios/ew-subset.yaml --run-dir runs/ew_subset --audit
 | **MobilitySpace 地图（M3 真）** | 需 pyproj+pycityproto+map.pb 城市数据，依赖重 | M3 仍代理（地标可点名不可走动） | 高（依赖+数据） |
 | **关系模型（M7 真）** | EW 有 ally/rival/mentor 类型，需 RelationshipSpace | M7 只能算网络密度，无关系类型 | 中 |
 | **Billboard/Blog 接入 M6** | B1 已有独立工具，但 AWI 尚未读取其状态 | M6 用 send_message 代理 | 中 |
-| **EW 工具目录** | B1 已完成公开目录 113/113；项目“120+”口径含未公开/历史项 | 名称、路由、状态、M4 已覆盖 | ✅ |
+| **EW 工具目录** | B1 已完成公开目录 113/113；项目“120+”口径含未公开/历史项 | 名称、唯一实现者、路由和 M4 已覆盖；95 个通用工具待逐类语义验收 | 🟡 |
 | **10 agent × 360 tick × 5 全量** | 成本不可行（~A2×250） | 长时程是压缩版 | 高（成本） |
 | **完整 pydantic DSL schema** | A2 lite loader 够用 | 场景校验弱 | 低 |
 | **统计显著性** | 样本太小（n=1/model） | CI 宽，仅趋势 | 中（需多 seed） |
@@ -335,4 +335,4 @@ python -m afi run-ew scenarios/ew-subset.yaml --run-dir runs/ew_subset --audit
 
 ### 12.3 一句话总结
 
-afi-platform **闭环 100% 跑通**（A1–A4），B1 公开工具目录 113/113 已接入，AWI 6/9 真算 + 3 代理。剩余工作是地图、关系指标、外部 provider、全量运行和统计 power，不是闭环或工具注册缺失。
+afi-platform **闭环 100% 跑通**（A1–A4），B1 公开工具目录 113/113 已接入，AWI 6/9 真算 + 3 代理。剩余工作包括通用工具领域语义验收、地图、关系指标、外部 provider、全量运行和统计 power，不是闭环或工具注册缺失。

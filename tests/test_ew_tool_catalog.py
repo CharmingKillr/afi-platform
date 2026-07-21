@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
-import json
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -42,6 +41,22 @@ def test_all_113_public_ew_tools_are_codegen_registered():
     assert len(EW_PUBLIC_TOOLS) == len(set(EW_PUBLIC_TOOLS)) == 113
 
 
+def test_full_scenario_has_one_owner_for_every_public_tool():
+    config = build_init_config(load_scenario(ROOT / "scenarios" / "ew_full.yaml"))
+    mounted = {item["module_type"] for item in config["env_modules"]}
+    owners: dict[str, list[str]] = {}
+    for cls in _classes():
+        if cls.__name__ not in mounted:
+            continue
+        for name in cls._registered_tools:
+            if name in EW_PUBLIC_TOOLS:
+                owners.setdefault(name, []).append(cls.__name__)
+
+    assert set(owners) == set(EW_PUBLIC_TOOLS)
+    assert {name: values for name, values in owners.items() if len(values) != 1} == {}
+    assert owners["add_todo"] == ["PlanningSpace"]
+
+
 def test_full_scenario_mounts_catalog_with_scalable_bounds():
     config = build_init_config(load_scenario(ROOT / "scenarios" / "ew_full.yaml"))
     module = next(x for x in config["env_modules"] if x["module_type"] == "EWToolSpace")
@@ -51,15 +66,9 @@ def test_full_scenario_mounts_catalog_with_scalable_bounds():
     assert module["kwargs"]["enabled_categories"] is None
 
 
-def test_env_module_metadata_is_repository_portable():
-    metadata = json.loads(
-        (ROOT / ".agentsociety" / "env_modules" / "ewtoolspace.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert metadata["module_path"] == "custom/envs/ew_tool_space.py"
-    assert metadata["file_path"] == metadata["module_path"]
-    assert not Path(metadata["file_path"]).is_absolute()
+def test_generated_agentsociety_metadata_is_not_versioned():
+    assert not (ROOT / ".agentsociety" / "env_modules" / "ewtoolspace.json").exists()
+    assert ".agentsociety/" in (ROOT / ".gitignore").read_text(encoding="utf-8")
 
 
 def test_category_gating_reduces_active_router_surface():
@@ -129,5 +138,5 @@ def test_resume_restores_domain_state_without_clobbering_router():
             assert await restored.restore(directory)
             assert restored._memories[1][0]["content"] == "persistent"
             assert restored._tool_manager is not None
-            assert len(restored._registered_tools) == 101
+            assert len(restored._registered_tools) == 95
     asyncio.run(run())

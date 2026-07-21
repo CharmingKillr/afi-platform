@@ -107,7 +107,11 @@ ISO 8601 and must be in the future relative to simulation time.
 
     @staticmethod
     def _error(message: str) -> dict:
-        return {"ok": False, "error": message}
+        return {"ok": False, "status": "fail", "error": message}
+
+    @staticmethod
+    def _success(**payload) -> dict:
+        return {"ok": True, "status": "success", **payload}
 
     def _snapshot(self, agent_id: int, now: datetime | None = None) -> dict:
         todos = self._todos[agent_id].values()
@@ -154,6 +158,7 @@ ISO 8601 and must be in the future relative to simulation time.
                 "next_todo_id": self._next_todo_id,
                 "next_event_id": self._next_event_id,
                 "step_counter": self._step_counter,
+                "current_time": self._now().isoformat(),
             }
             atomic_write_text(
                 self._workspace_root / _STATE_REL,
@@ -188,6 +193,12 @@ ISO 8601 and must be in the future relative to simulation time.
         self._next_todo_id = int(state.get("next_todo_id", 1))
         self._next_event_id = int(state.get("next_event_id", 1))
         self._step_counter = int(state.get("step_counter", 0))
+        saved_time = state.get("current_time")
+        self.t = (
+            self._parse_datetime(saved_time, "current_time")
+            if saved_time
+            else datetime.min
+        )
         self._lock = asyncio.Lock()
         return True
 
@@ -215,7 +226,7 @@ ISO 8601 and must be in the future relative to simulation time.
                 "completed_step": None,
             }
             self._todos[agent_id][item_id] = item
-            return {"ok": True, "todo": dict(item)}
+            return self._success(todo=dict(item))
 
     @tool(readonly=False)
     async def complete_todo(self, agent_id: int, todo_id: int) -> dict:
@@ -232,10 +243,10 @@ ISO 8601 and must be in the future relative to simulation time.
             if item is None:
                 return self._error(f"todo {todo_id} not found")
             if item["completed"]:
-                return {"ok": True, "todo": dict(item), "already_completed": True}
+                return self._success(todo=dict(item), already_completed=True)
             item["completed"] = True
             item["completed_step"] = self._step_counter
-            return {"ok": True, "todo": dict(item), "already_completed": False}
+            return self._success(todo=dict(item), already_completed=False)
 
     @tool(readonly=True)
     async def list_todo(self, agent_id: int) -> dict:
@@ -252,7 +263,7 @@ ISO 8601 and must be in the future relative to simulation time.
                 for item in self._todos[agent_id].values()
                 if not item["completed"]
             ]
-            return {"ok": True, "todos": pending, "count": len(pending)}
+            return self._success(todos=pending, count=len(pending))
 
     @tool(readonly=False)
     async def add_to_calendar(
@@ -299,7 +310,7 @@ ISO 8601 and must be in the future relative to simulation time.
                 "created_step": self._step_counter,
             }
             self._calendar[agent_id][event_id] = event
-            return {"ok": True, "event": dict(event)}
+            return self._success(event=dict(event))
 
     @tool(readonly=True)
     async def check_calendar(self, agent_id: int, limit: int = 20) -> dict:
@@ -327,6 +338,7 @@ ISO 8601 and must be in the future relative to simulation time.
             upcoming.sort(key=lambda event: (event["start_at"], event["id"]))
             return {
                 "ok": True,
+                "status": "success",
                 "events": upcoming[:limit],
                 "count": min(len(upcoming), limit),
                 "total_upcoming": len(upcoming),
@@ -346,4 +358,4 @@ ISO 8601 and must be in the future relative to simulation time.
             event = self._calendar[agent_id].pop(int(event_id), None)
             if event is None:
                 return self._error(f"calendar event {event_id} not found")
-            return {"ok": True, "removed": event}
+            return self._success(removed=event)

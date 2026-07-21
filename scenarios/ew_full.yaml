@@ -16,7 +16,7 @@ envs:                       # A4 adds EnergySpace (M1) + CrimeSpace (M2)
   - EnergySpace
   - CrimeSpace
   - PlanningSpace            # B1: personal to-do and calendar tools
-  - EWToolSpace             # B1: full public EW tool catalog (113-tool union)
+  - EWToolSpace             # B1: remaining 95 public tools; specialized tools excluded
 agents: full
 start_t: "2026-07-01T08:00:00"
 steps:

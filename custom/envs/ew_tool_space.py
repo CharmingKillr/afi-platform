@@ -29,6 +29,8 @@ _STATE_REL = "state/ENV_STATE.json"
 # not duplicated here.  The B1 coverage test checks the union of all modules.
 SPECIALIZED_TOOLS = {
     "list_landmarks", "send_message",
+    "add_todo", "complete_todo", "list_todo",
+    "add_to_calendar", "check_calendar", "remove_from_calendar",
     "submit_grant_pitch", "vote_for_pitch", "list_credit_pitches",
     "deposit_credits_to_bank", "withdraw_credits_from_bank", "take_bank_loan",
     "repay_bank_loan", "check_bank_balance", "transact_compute_credits",
