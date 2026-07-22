@@ -42,6 +42,19 @@ def test_pay_steal_and_bank_constraints():
     asyncio.run(run())
 
 
+def test_economy_writes_are_same_step_idempotent_and_have_status():
+    async def run():
+        env = _space()
+        first = await env.transact_compute_credits(1, 2, 10, "pay")
+        retry = await env.transact_compute_credits(1, 2, 10, "pay")
+        assert first["status"] == retry["status"] == "success"
+        assert retry["deduplicated"] is True
+        assert (await env.get_person_currency(1))["currency"] == 90
+        failed = await env.take_bank_loan(1, 4)
+        assert failed["status"] == "fail"
+    asyncio.run(run())
+
+
 def test_pitch_rules_and_two_day_rewards():
     async def run():
         env = _space()

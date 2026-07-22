@@ -7,7 +7,13 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from afi.world.ew_tools import EW_PUBLIC_TOOLS
+from afi.world.ew_tools import (
+    EW_PUBLIC_TOOLS,
+    EW_TOOL_SPECS,
+    EW_TOOL_SPEC_BY_NAME,
+    render_tool_catalog_markdown,
+    tool_catalog_rows,
+)
 from afi.world.scenario import build_init_config, load_scenario
 
 
@@ -39,6 +45,22 @@ def test_all_113_public_ew_tools_are_codegen_registered():
         registered.update(cls._registered_tools)
     assert set(EW_PUBLIC_TOOLS) <= registered
     assert len(EW_PUBLIC_TOOLS) == len(set(EW_PUBLIC_TOOLS)) == 113
+
+
+def test_all_public_tools_have_auditable_specs_and_honest_validation_status():
+    assert len(EW_TOOL_SPECS) == len(tool_catalog_rows()) == 113
+    assert set(EW_TOOL_SPEC_BY_NAME) == set(EW_PUBLIC_TOOLS)
+    assert all(spec.purpose and spec.owner and spec.validation for spec in EW_TOOL_SPECS)
+    external = {spec.name for spec in EW_TOOL_SPECS if spec.validation == "provider_boundary_only"}
+    assert external == {
+        "do_deep_research_on_internet", "todays_news_from_human_world", "web_fetch",
+        "browse_scientific_papers", "check_weather", "generate_image",
+    }
+    assert EW_TOOL_SPEC_BY_NAME["add_todo"].owner == "PlanningSpace"
+    assert EW_TOOL_SPEC_BY_NAME["send_message"].validation == "registered_and_router_tested"
+    report = render_tool_catalog_markdown()
+    assert report.count("\n| `") == 113
+    assert "仅适配边界通过" in report
 
 
 def test_full_scenario_has_one_owner_for_every_public_tool():

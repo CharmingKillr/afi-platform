@@ -80,8 +80,11 @@ def _make_catalog_tool(name: str, readonly: bool):
 
     generated.__name__ = name
     generated.__qualname__ = f"EWToolSpace.{name}"
+    action = name.replace("_", " ")
     generated.__doc__ = (
-        f"EW {TOOL_CATEGORY[name]} operation **{name}**.\n\n"
+        f"Perform the EW **{action}** operation in the {TOOL_CATEGORY[name]} category.\n\n"
+        "The operation uses local deterministic state unless its result explicitly says "
+        "that an external capability provider is required.\n\n"
         ":param agent_id: Acting or requesting agent ID.\n"
         ":param request: Extensible operation fields; IDs, content, query, limits, or metadata.\n"
     )

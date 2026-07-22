@@ -67,6 +67,18 @@ def test_todo_lifecycle_is_private_per_agent():
     asyncio.run(run())
 
 
+def test_planning_writes_are_same_step_idempotent():
+    async def run():
+        env = _planning_class()(agent_ids=[1])
+        first = await env.add_todo(1, "write report")
+        retry = await env.add_todo(1, "write report")
+        assert retry["deduplicated"] is True
+        assert retry["todo"]["id"] == first["todo"]["id"]
+        assert (await env.list_todo(1))["count"] == 1
+
+    asyncio.run(run())
+
+
 def test_calendar_validation_ordering_isolation_and_removal():
     async def run():
         env = _planning_class()(agent_ids=[1, 2])

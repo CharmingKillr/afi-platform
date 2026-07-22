@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timedelta
+from functools import wraps
 from typing import ClassVar, List
 
 from agentsociety2.env import EnvBase, tool
@@ -19,6 +20,24 @@ from agentsociety2.storage.workspace_state import atomic_write_text
 
 _STATE_REL = "state/ENV_STATE.json"
 _logger = get_logger()
+
+
+def idempotent_write(func):
+    """Deduplicate an identical write retry within one simulation step."""
+    @wraps(func)
+    async def wrapped(self, *args, **kwargs):
+        key = json.dumps(
+            [self._step_counter, func.__name__, args, kwargs],
+            sort_keys=True,
+            default=str,
+        )
+        async with self._dedup_lock:
+            if key in self._dedup:
+                return {**self._dedup[key], "deduplicated": True}
+            result = await func(self, *args, **kwargs)
+            self._dedup[key] = dict(result)
+            return result
+    return wrapped
 
 
 class EconomySpace(EnvBase):
@@ -71,11 +90,13 @@ class EconomySpace(EnvBase):
         self._pitches: list[dict] = []
         self._pitch_history: list[dict] = []
         self._transactions: list[dict] = []
+        self._dedup: dict[str, dict] = {}
         self._next_pitch_id = 1
         self._step_counter = 0
         self._last_run_datetime: datetime | None = None
         self._next_pitch_close: datetime | None = None
         self._lock = asyncio.Lock()
+        self._dedup_lock = asyncio.Lock()
 
     @classmethod
     def description(cls) -> str:
@@ -113,6 +134,7 @@ three eligible evidence-backed pitches.
             "pitches": self._pitches,
             "pitch_history": self._pitch_history,
             "transactions": self._transactions,
+            "dedup": self._dedup,
             "next_pitch_id": self._next_pitch_id,
             "step_counter": self._step_counter,
             "last_run_datetime": self._last_run_datetime.isoformat() if self._last_run_datetime else None,
@@ -139,6 +161,8 @@ three eligible evidence-backed pitches.
         self._pitches = state.get("pitches", [])
         self._pitch_history = state.get("pitch_history", [])
         self._transactions = state.get("transactions", [])
+        self._dedup = state.get("dedup", {})
+        self._dedup_lock = asyncio.Lock()
         self._next_pitch_id = int(state.get("next_pitch_id", 1))
         self._step_counter = int(state.get("step_counter", 0))
         if state.get("last_run_datetime"):
@@ -151,7 +175,11 @@ three eligible evidence-backed pitches.
         return self._persons.get(int(agent_id))
 
     def _error(self, message: str) -> dict:
-        return {"ok": False, "error": message}
+        return {"ok": False, "status": "fail", "error": message}
+
+    @staticmethod
+    def _success(**payload) -> dict:
+        return {"ok": True, "status": "success", **payload}
 
     def _record_transaction(self, kind: str, actor: int, amount: float, target: int | None = None) -> dict:
         record = {
@@ -193,6 +221,7 @@ three eligible evidence-backed pitches.
             self._last_run_datetime = t
             self.t = t
             self._step_counter += 1
+            self._dedup.clear()
             for pid, person in self._persons.items():
                 await self._write_agent_state(
                     pid, self._step_counter, t,
@@ -220,6 +249,7 @@ three eligible evidence-backed pitches.
             return {"currency": person["currency"] if person else 0.0}
 
     @tool(readonly=False)
+    @idempotent_write
     async def add_person_currency(self, id: int, delta: float) -> dict:
         """:param id: Agent ID. :param delta: Signed currency adjustment."""
         async with self._lock:
@@ -228,7 +258,7 @@ three eligible evidence-backed pitches.
                 return self._error("agent not found")
             old = person["currency"]
             person["currency"] += float(delta)
-            return {"ok": True, "old_currency": old, "new_currency": person["currency"], "delta": delta}
+            return self._success(old_currency=old, new_currency=person["currency"], delta=delta)
 
     @tool(readonly=True)
     async def get_person_skill(self, id: int) -> dict:
@@ -245,15 +275,16 @@ three eligible evidence-backed pitches.
             return {"consumption": person["consumption"] if person else 0.0}
 
     @tool(readonly=False)
+    @idempotent_write
     async def set_person_consumption(self, id: int, consumption: float) -> dict:
         """:param id: Agent ID. :param consumption: New per-day consumption."""
         async with self._lock:
             person = self._person(id)
             if not person:
-                return {"old_consumption": 0.0, "new_consumption": float(consumption)}
+                return self._error("agent not found")
             old = person["consumption"]
             person["consumption"] = float(consumption)
-            return {"old_consumption": old, "new_consumption": person["consumption"]}
+            return self._success(old_consumption=old, new_consumption=person["consumption"])
 
     @tool(readonly=True)
     async def get_person_income(self, id: int) -> dict:
@@ -263,17 +294,19 @@ three eligible evidence-backed pitches.
             return {"income": person["income"] if person else 0.0}
 
     @tool(readonly=False)
+    @idempotent_write
     async def set_person_income(self, id: int, income: float) -> dict:
         """:param id: Agent ID. :param income: New per-day income."""
         async with self._lock:
             person = self._person(id)
             if not person:
-                return {"old_income": 0.0, "new_income": float(income)}
+                return self._error("agent not found")
             old = person["income"]
             person["income"] = float(income)
-            return {"old_income": old, "new_income": person["income"]}
+            return self._success(old_income=old, new_income=person["income"])
 
     @tool(readonly=False)
+    @idempotent_write
     async def transact_compute_credits(self, agent_id: int, target_id: int, amount: float, mode: str = "pay") -> dict:
         """Pay another agent, or use EW's explicitly criminal ``steal`` mode.
 
@@ -303,9 +336,10 @@ three eligible evidence-backed pitches.
                 target["currency"] -= amount
                 actor["currency"] += amount
             record = self._record_transaction(mode, agent_id, amount, target_id)
-            return {"ok": True, "transaction": record, "criminal": mode == "steal"}
+            return self._success(transaction=record, criminal=mode == "steal")
 
     @tool(readonly=False)
+    @idempotent_write
     async def submit_grant_pitch(self, agent_id: int, title: str, description: str, evidence_url: str) -> dict:
         """Submit one evidence-backed contribution pitch in the current cycle.
 
@@ -328,9 +362,10 @@ three eligible evidence-backed pitches.
             }
             self._next_pitch_id += 1
             self._pitches.append(pitch)
-            return {"ok": True, "pitch": dict(pitch), "warning": None if eligible else "invalid evidence URL; pitch is ineligible"}
+            return self._success(pitch=dict(pitch), warning=None if eligible else "invalid evidence URL; pitch is ineligible")
 
     @tool(readonly=False)
+    @idempotent_write
     async def vote_for_pitch(self, agent_id: int, pitch_id: int) -> dict:
         """:param agent_id: Voting agent ID. :param pitch_id: Current-cycle pitch ID."""
         async with self._lock:
@@ -342,7 +377,7 @@ three eligible evidence-backed pitches.
             if any(agent_id in p["votes"] for p in self._pitches if p["cycle"] == self._pitch_cycle):
                 return self._error("one vote per agent per cycle")
             pitch["votes"].append(agent_id)
-            return {"ok": True, "pitch_id": pitch_id, "votes": len(pitch["votes"])}
+            return self._success(pitch_id=pitch_id, votes=len(pitch["votes"]))
 
     @tool(readonly=True)
     async def list_credit_pitches(self, agent_id: int) -> dict:
@@ -352,6 +387,7 @@ three eligible evidence-backed pitches.
             return {"cycle": self._pitch_cycle, "pitches": pitches, "closes_at": str(self._next_pitch_close)}
 
     @tool(readonly=False)
+    @idempotent_write
     async def deposit_credits_to_bank(self, agent_id: int, amount: float) -> dict:
         """:param agent_id: Depositing agent ID. :param amount: CC to move from wallet."""
         async with self._lock:
@@ -361,9 +397,10 @@ three eligible evidence-backed pitches.
                 return self._error("invalid amount or insufficient wallet credits")
             person["currency"] -= amount
             self._deposits[agent_id] += amount
-            return {"ok": True, "wallet": person["currency"], "deposit": self._deposits[agent_id]}
+            return self._success(wallet=person["currency"], deposit=self._deposits[agent_id])
 
     @tool(readonly=False)
+    @idempotent_write
     async def withdraw_credits_from_bank(self, agent_id: int, amount: float) -> dict:
         """:param agent_id: Withdrawing agent ID. :param amount: CC to move to wallet."""
         async with self._lock:
@@ -373,9 +410,10 @@ three eligible evidence-backed pitches.
                 return self._error("invalid amount or insufficient bank deposit")
             self._deposits[agent_id] -= amount
             person["currency"] += amount
-            return {"ok": True, "wallet": person["currency"], "deposit": self._deposits[agent_id]}
+            return self._success(wallet=person["currency"], deposit=self._deposits[agent_id])
 
     @tool(readonly=False)
+    @idempotent_write
     async def take_bank_loan(self, agent_id: int, amount: float) -> dict:
         """:param agent_id: Borrowing agent ID. :param amount: Loan amount from 1 through 3 CC."""
         async with self._lock:
@@ -385,9 +423,10 @@ three eligible evidence-backed pitches.
                 return self._error("loan amount must be between 1 and 3 CC")
             person["currency"] += amount
             self._loans[agent_id] += amount
-            return {"ok": True, "wallet": person["currency"], "loan": self._loans[agent_id]}
+            return self._success(wallet=person["currency"], loan=self._loans[agent_id])
 
     @tool(readonly=False)
+    @idempotent_write
     async def repay_bank_loan(self, agent_id: int, amount: float) -> dict:
         """:param agent_id: Repaying agent ID. :param amount: CC to repay from wallet."""
         async with self._lock:
@@ -398,7 +437,7 @@ three eligible evidence-backed pitches.
                 return self._error("invalid amount, insufficient wallet credits, or repayment exceeds balance")
             person["currency"] -= amount
             self._loans[agent_id] -= amount
-            return {"ok": True, "wallet": person["currency"], "loan": self._loans[agent_id]}
+            return self._success(wallet=person["currency"], loan=self._loans[agent_id])
 
     @tool(readonly=True)
     async def check_bank_balance(self, agent_id: int) -> dict:
@@ -407,7 +446,7 @@ three eligible evidence-backed pitches.
             person = self._person(agent_id)
             if not person:
                 return self._error("agent not found")
-            return {"ok": True, "wallet": person["currency"], "deposit": self._deposits[agent_id], "loan": self._loans[agent_id]}
+            return self._success(wallet=person["currency"], deposit=self._deposits[agent_id], loan=self._loans[agent_id])
 
     @tool(readonly=True)
     async def victory_arch_pitch_winners(self, agent_id: int) -> dict:

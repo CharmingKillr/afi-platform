@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timezone
+from functools import wraps
 from typing import ClassVar, List
 
 from agentsociety2.env import EnvBase, tool
@@ -26,6 +27,23 @@ from agentsociety2.storage.workspace_state import atomic_write_text
 
 _STATE_REL = "state/PLANNING_STATE.json"
 _logger = get_logger()
+
+
+def idempotent_write(func):
+    """Return the original result when an agent retries a write in one step."""
+    @wraps(func)
+    async def wrapped(self, *args, **kwargs):
+        key = json.dumps([self._step_counter, func.__name__, args, kwargs], sort_keys=True, default=str)
+        async with self._dedup_lock:
+            if key in self._dedup:
+                duplicate = {**self._dedup[key], "deduplicated": True}
+                if func.__name__ == "complete_todo" and duplicate.get("ok"):
+                    duplicate["already_completed"] = True
+                return duplicate
+            result = await func(self, *args, **kwargs)
+            self._dedup[key] = dict(result)
+            return result
+    return wrapped
 
 
 class PlanningSpace(EnvBase):
@@ -55,7 +73,9 @@ class PlanningSpace(EnvBase):
         self._next_todo_id = 1
         self._next_event_id = 1
         self._step_counter = 0
+        self._dedup: dict[str, dict] = {}
         self._lock = asyncio.Lock()
+        self._dedup_lock = asyncio.Lock()
 
     @classmethod
     def description(cls) -> str:
@@ -131,6 +151,7 @@ ISO 8601 and must be in the future relative to simulation time.
         async with self._lock:
             self.t = t
             self._step_counter += 1
+            self._dedup.clear()
             for agent_id in self._agent_ids:
                 await self._write_agent_state(
                     agent_id,
@@ -158,6 +179,7 @@ ISO 8601 and must be in the future relative to simulation time.
                 "next_todo_id": self._next_todo_id,
                 "next_event_id": self._next_event_id,
                 "step_counter": self._step_counter,
+                "dedup": self._dedup,
                 "current_time": self._now().isoformat(),
             }
             atomic_write_text(
@@ -193,6 +215,7 @@ ISO 8601 and must be in the future relative to simulation time.
         self._next_todo_id = int(state.get("next_todo_id", 1))
         self._next_event_id = int(state.get("next_event_id", 1))
         self._step_counter = int(state.get("step_counter", 0))
+        self._dedup = state.get("dedup", {})
         saved_time = state.get("current_time")
         self.t = (
             self._parse_datetime(saved_time, "current_time")
@@ -200,9 +223,11 @@ ISO 8601 and must be in the future relative to simulation time.
             else datetime.min
         )
         self._lock = asyncio.Lock()
+        self._dedup_lock = asyncio.Lock()
         return True
 
     @tool(readonly=False)
+    @idempotent_write
     async def add_todo(self, agent_id: int, task: str) -> dict:
         """Add a task to your personal to-do list.
 
@@ -229,6 +254,7 @@ ISO 8601 and must be in the future relative to simulation time.
             return self._success(todo=dict(item))
 
     @tool(readonly=False)
+    @idempotent_write
     async def complete_todo(self, agent_id: int, todo_id: int) -> dict:
         """Mark one of your personal tasks as complete.
 
@@ -266,6 +292,7 @@ ISO 8601 and must be in the future relative to simulation time.
             return self._success(todos=pending, count=len(pending))
 
     @tool(readonly=False)
+    @idempotent_write
     async def add_to_calendar(
         self,
         agent_id: int,
@@ -345,6 +372,7 @@ ISO 8601 and must be in the future relative to simulation time.
             }
 
     @tool(readonly=False)
+    @idempotent_write
     async def remove_from_calendar(self, agent_id: int, event_id: int) -> dict:
         """Cancel an event from your personal calendar.
 
