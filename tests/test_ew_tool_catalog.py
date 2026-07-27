@@ -39,6 +39,10 @@ def _ew_class():
     return next(cls for cls in _classes() if cls.__name__ == "EWToolSpace")
 
 
+def _blog_class():
+    return next(cls for cls in _classes() if cls.__name__ == "BlogSpace")
+
+
 def test_all_113_public_ew_tools_are_codegen_registered():
     registered = set()
     for cls in _classes():
@@ -57,6 +61,7 @@ def test_all_public_tools_have_auditable_specs_and_honest_validation_status():
         "browse_scientific_papers", "check_weather", "generate_image",
     }
     assert EW_TOOL_SPEC_BY_NAME["add_todo"].owner == "PlanningSpace"
+    assert EW_TOOL_SPEC_BY_NAME["write_blog"].owner == "BlogSpace"
     assert EW_TOOL_SPEC_BY_NAME["send_message"].validation == "registered_and_router_tested"
     report = render_tool_catalog_markdown()
     assert report.count("\n| `") == 113
@@ -77,6 +82,7 @@ def test_full_scenario_has_one_owner_for_every_public_tool():
     assert set(owners) == set(EW_PUBLIC_TOOLS)
     assert {name: values for name, values in owners.items() if len(values) != 1} == {}
     assert owners["add_todo"] == ["PlanningSpace"]
+    assert owners["write_blog"] == ["BlogSpace"]
 
 
 def test_full_scenario_mounts_catalog_with_scalable_bounds():
@@ -86,6 +92,7 @@ def test_full_scenario_mounts_catalog_with_scalable_bounds():
     assert module["kwargs"]["max_events"] == 20000
     assert module["kwargs"]["max_query_items"] == 100
     assert module["kwargs"]["enabled_categories"] is None
+    assert {x["module_type"] for x in config["env_modules"]} >= {"PlanningSpace", "BlogSpace"}
 
 
 def test_generated_agentsociety_metadata_is_not_versioned():
@@ -160,5 +167,38 @@ def test_resume_restores_domain_state_without_clobbering_router():
             assert await restored.restore(directory)
             assert restored._memories[1][0]["content"] == "persistent"
             assert restored._tool_manager is not None
-            assert len(restored._registered_tools) == 95
+            assert len(restored._registered_tools) == 89
+    asyncio.run(run())
+
+
+def test_blog_tools_have_a_single_specialized_owner():
+    blog_tools = {"write_blog", "update_blog", "delete_blog", "comment_on_blog", "list_blogs", "read_blog"}
+    assert blog_tools <= set(_blog_class()._registered_tools)
+    assert not blog_tools & set(_ew_class()._registered_tools)
+
+
+def test_blog_domain_contract_permissions_lifecycle_and_restore():
+    async def run():
+        cls = _blog_class()
+        env = cls(agent_ids=[1, 2])
+        draft = await env.write_blog(1, "Protocol", "Use explicit consent.")
+        assert draft["ok"] and draft["blog"]["status"] == "draft"
+        blog_id = draft["blog"]["id"]
+        assert (await env.read_blog(2, blog_id))["ok"] is True
+        assert (await env.update_blog(2, blog_id, title="Hijack"))["status"] == "fail"
+        assert (await env.comment_on_blog(2, blog_id, "Useful."))["ok"] is True
+        duplicate = await env.comment_on_blog(2, blog_id, "Useful.")
+        assert duplicate["deduplicated"] is True
+        published = await env.update_blog(1, blog_id, status="published", visibility="public")
+        assert published["blog"]["status"] == "published"
+        assert (await env.write_blog(1, "", "body"))["status"] == "fail"
+        assert (await env.write_blog(1, "Title", "body", visibility="team"))["status"] == "fail"
+        with tempfile.TemporaryDirectory() as directory:
+            await env.to_workspace(directory)
+            restored = cls(agent_ids=[99])
+            assert await restored.restore(directory)
+            restored_blog = await restored.read_blog(1, blog_id)
+            assert restored_blog["blog"]["title"] == "Protocol"
+            assert len(restored_blog["blog"]["comments"]) == 1
+            assert (await restored.list_blogs(2))["count"] == 1
     asyncio.run(run())

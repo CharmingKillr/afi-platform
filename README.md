@@ -137,8 +137,7 @@ AGENTSOCIETY_LLM_API_KEY=demo-key python demo/ew_tool_adaptation_demo.py
 - **ai-freedom-island (AFI)** — EW 可运行复现 + 审计扩展（audit.py + AWI + crime_log）
 
 B1 工具扩展已覆盖 EW 当前公开目录的 113/113 个唯一工具名称。规划类 6 个工具由
-`PlanningSpace` 提供专用实现；经济、治理、能量、消息、犯罪和地标也由专用环境负责，
-其余 95 个由可扩展 `EWToolSpace` 注册。实时外部能力通过 provider 请求接口接入。
+`PlanningSpace` 提供专用实现；内容类 6 个工具由 `BlogSpace` 提供专用实现；经济、治理、能量、消息、犯罪和地标也由专用环境负责；其余 89 个由可扩展 `EWToolSpace` 注册。实时外部能力通过 provider 请求接口接入。
 这里的 113/113 表示目录、唯一实现者和路由覆盖，不表示每个通用工具都已完成领域级语义验收。
 工具按 EW 公开语义重写，未复制上游代码。
 

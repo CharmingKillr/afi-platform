@@ -113,6 +113,12 @@ def _env_builders():
             "kwargs": {"agent_ids": list(range(1, ctx["num_agents"] + 1))},
         }
 
+    def blog(ctx):
+        return {
+            "module_type": "BlogSpace",
+            "kwargs": {"agent_ids": list(range(1, ctx["num_agents"] + 1))},
+        }
+
     def ew_tools(ctx):
         return {
             "module_type": "EWToolSpace",
@@ -139,6 +145,7 @@ def _env_builders():
         "EnergySpace": energy,
         "CrimeSpace": crime,
         "PlanningSpace": planning,
+        "BlogSpace": blog,
         "EWToolSpace": ew_tools,
     }
 

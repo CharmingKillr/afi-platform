@@ -17,10 +17,10 @@
 ## 二、Backlog：还没做的（按难度/优先级）
 
 ### B1. EW 工具补全 🟡（目录与路由完成；领域语义持续补全）
-- **已完成**：EW 当前公开 `tools/README.md` 共 113 个唯一名称，已 113/113 注册且在 `ew_full.yaml` 中每个名称只有一个实现者。规划类 6 个由 `PlanningSpace` 负责；其他专用环境负责 12 个；剩余 95 个由 `EWToolSpace` 提供通用实现。
+- **已完成**：EW 当前公开 `tools/README.md` 共 113 个唯一名称，已 113/113 注册且在 `ew_full.yaml` 中每个名称只有一个实现者。规划类 6 个由 `PlanningSpace` 负责；内容类 6 个由 `BlogSpace` 负责；其他专用环境负责 12 个；剩余 89 个由 `EWToolSpace` 提供通用实现。
 - **边界说明**：EW 的“120+”包含演进中的历史/内部工具，公开仓库当前只能逐项核验 113 个。实时新闻、网页、论文、天气、图片生成采用 `in_progress` provider 请求接口；未配置 provider 时不伪造结果。
 - **实现**：`afi/world/ew_tools.py` 固化可审计目录；`EWToolSpace` 采用声明式注册、分类门控、有界查询、同 step 幂等、Replay 快照和 resume；agent 操作说明随模块分发。
-- **还需完成**：将 95 个通用实现按领域逐步升级为精确签名、权限、状态机、幂等、审计事件和真实 Agent 场景均已验收的专用实现。
+- **还需完成**：将 89 个通用实现按领域逐步升级为精确签名、权限、状态机、幂等、审计事件和真实 Agent 场景均已验收的专用实现；BlogSpace 仍需补真实 Agent trace 和完整审核工作流。
 - **验收**：覆盖测试锁定 113/113 且拒绝重复实现者；pytest 进入 CI；标准 `react.action` spans 中的新工具由 M4 正确去重计数。
 - **注意**：工具名/语义要贴 EW 原文，别自创；EW 是研究用 license，别直接搬代码，按设定重写。
 
@@ -57,7 +57,7 @@
 
 ### B7. 测试套件（缓做，但也是缺口）— 中等
 - **缺什么**：平台建了仪器没建考卷——无 ground-truth label → 说不了"检测器准不准/多早/比基线强多少"。
-- **现状**：`docs/eval-suite-goals.md`+`eval-suite-plan.md` 已写目标+plan；`tests/` 空目录。
+- **现状**：`docs/eval-suite-goals.md`+`eval-suite-plan.md` 已写目标+plan；L1 标签与评分代码仍未完成。
 - **怎么做**：按 `eval-suite-plan.md` 三层（L1 精标核心 / L2 参数化扩展 / L3 任意YAML）实现 `eval/` 子包；先 L1（6 注入场景+label+scoring）。
 - **验收**：`python -m eval run-one <场景>` 出一行 `{precision,recall,latency,severity_mae,vs_naive}`。
 - **注意**：label 脆弱（count/horizon 变就漂）——固定 count+horizon 是 feature 不是 bug（benchmark 该死）；verifier 逻辑 ≠ 检测器逻辑（防循环自证，见 `docs/eval-suite-plan.md`）。
@@ -69,7 +69,7 @@
 - **注意**：成本（每 run 几分钟+API token）；先跑子集验证 pipeline 再全量；非 qwen 模型（Claude/GPT 系）需对应 API key。
 
 ### B9. `tests/` 填充（单元测试）— 低难度·高价值
-- **缺什么**：`tests/` 空目录。核心模块（`awi._gini`、`causal._resolve_tick`、`attribution.localize_first_domino`、`scenario.build_init_config`）没单测。
+- **缺什么**：已有 B1 环境测试，但核心模块（`awi._gini`、`causal._resolve_tick`、`attribution.localize_first_domino`、`scenario.build_init_config`）仍需补充独立 fixture 单测。
 - **怎么做**：用 pytest（已在 `[dev]` extra）写：Gini 边界（等分→0/独占→(n-1)/n）、_resolve_tick 读 step.count 不读 agent.tick=3600、localize 命中 missed_recharge、scenario load+build。
 - **验收**：`pytest tests/` 全绿。
 - **注意**：单测用现有 run 数据（`runs/ew_multi/` 本地有，但 .gitignore 排了——测试 fixture 要自带小样本或 skip 无数据时）。

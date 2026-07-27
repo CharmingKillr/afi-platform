@@ -35,6 +35,7 @@ SPECIALIZED_TOOLS = {
     "deposit_credits_to_bank", "withdraw_credits_from_bank", "take_bank_loan",
     "repay_bank_loan", "check_bank_balance", "transact_compute_credits",
     "victory_arch_pitch_winners",
+    "write_blog", "update_blog", "delete_blog", "comment_on_blog", "list_blogs", "read_blog",
 }
 
 _CATEGORY_NAMES = {

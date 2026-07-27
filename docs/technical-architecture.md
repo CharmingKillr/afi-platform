@@ -327,7 +327,7 @@ python -m afi run-ew scenarios/ew-subset.yaml --run-dir runs/ew_subset --audit
 | **MobilitySpace 地图（M3 真）** | 需 pyproj+pycityproto+map.pb 城市数据，依赖重 | M3 仍代理（地标可点名不可走动） | 高（依赖+数据） |
 | **关系模型（M7 真）** | EW 有 ally/rival/mentor 类型，需 RelationshipSpace | M7 只能算网络密度，无关系类型 | 中 |
 | **Billboard/Blog 接入 M6** | B1 已有独立工具，但 AWI 尚未读取其状态 | M6 用 send_message 代理 | 中 |
-| **EW 工具目录** | B1 已完成公开目录 113/113；项目“120+”口径含未公开/历史项 | 名称、唯一实现者、路由和 M4 已覆盖；95 个通用工具待逐类语义验收 | 🟡 |
+| **EW 工具目录** | B1 已完成公开目录 113/113；项目“120+”口径含未公开/历史项 | 名称、唯一实现者、路由和 M4 已覆盖；BlogSpace 已领域化，89 个通用工具待逐类语义验收 | 🟡 |
 | **10 agent × 360 tick × 5 全量** | 成本不可行（~A2×250） | 长时程是压缩版 | 高（成本） |
 | **完整 pydantic DSL schema** | A2 lite loader 够用 | 场景校验弱 | 低 |
 | **统计显著性** | 样本太小（n=1/model） | CI 宽，仅趋势 | 中（需多 seed） |

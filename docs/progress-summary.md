@@ -4,11 +4,13 @@
 > 数据来自代码与文档实测（`architecture-and-roadmap.md` 路线、`technical-architecture.md` §12 完成度、`afi/` 模块、`custom/envs/`、`runs/` 均核实），非凭记忆。
 > 范围限定平台本身；旗舰方法（第一骨牌归因/反事实）不在此文。
 
+> **2026-07-27 更新**：B1 内容领域继续推进，新增 `BlogSpace`，将 6 个内容工具从 `EWToolSpace` 拆出并完成严格契约、权限、状态、幂等、恢复和测试；当前分支测试为 25 passed。原文中的 7 月 14 日数字保留作为历史基线，当前口径以本更新和 `docs/blog-space-implementation.md` 为准。
+
 ---
 
 ## 〇、一句话
 
-afi-platform **平台闭环已 100% 跑通**（A1–A4），B1 已完成 EW 公开工具目录 113/113 的名称、唯一实现者和路由覆盖。能跑长时程多 agent 社会→trace/replay→检测器→AWI 9族→报告。剩余差距包括 95 个通用工具的领域语义验收、地图、关系/表达指标、外部 provider、全量跑、统计 power 和检测器校准。
+afi-platform **平台闭环已 100% 跑通**（A1–A4），B1 已完成 EW 公开工具目录 113/113 的名称、唯一实现者和路由覆盖。当前 24 个工具由专用环境负责，89 个仍由通用 `EWToolSpace` 承载；BlogSpace 已完成首个内容领域包。能跑长时程多 agent 社会→trace/replay→检测器→AWI 9族→报告。剩余差距包括 89 个通用工具的领域语义验收、地图、关系/表达指标、外部 provider、全量跑、统计 power 和检测器校准。
 
 ---
 
@@ -109,8 +111,8 @@ afi-platform **平台闭环已 100% 跑通**（A1–A4），B1 已完成 EW 公�
 |---|---|---|---|
 | **MobilitySpace 地图（M3 真）** | 需 pyproj+pycityproto+城市 map.pb | M3 仍代理（地标可点名不可走动） | 高（依赖+数据） |
 | **关系模型（M7 真）** | EW 有 ally/rival/mentor，需 RelationshipSpace | M7 只能算网络密度，无关系类型 | 中 |
-| **Billboard/Blog 接入 M6** | B1 已有独立工具，但 AWI 尚未读取其状态 | M6 仍用 send_message 代理 | 中 |
-| **EW 工具目录** | 公开目录 113 个唯一工具 | 目录/唯一实现者/路由/M4 已验收；通用工具语义待逐类升级 | 🟡 |
+| **Billboard/Blog 接入 M6** | BlogSpace 已有独立状态/replay，但 AWI 尚未读取其传播链 | M6 仍用 send_message 代理 | 中 |
+| **EW 工具目录** | 公开目录 113 个唯一工具 | 目录/唯一实现者/路由/M4 已验收；BlogSpace 已完成首个领域包，其余通用工具语义待逐类升级 | 🟡 |
 | **10 agent × 360 tick × 5 全量** | 成本不可行（~A2×250） | 长时程是压缩版 | 高（成本） |
 | **完整 pydantic scenario DSL** | A2 lite loader 够用 | 场景校验弱 | 低 |
 | **Concordia 后端** | strategy 规划可换后端 | 后端可换目前是 claim 非事实 | 中 |
@@ -178,4 +180,4 @@ afi-platform **平台闭环已 100% 跑通**（A1–A4），B1 已完成 EW 公�
 
 ## 九、一句话总结
 
-afi-platform **平台闭环 100% 跑通**（A1-A4），B1 已覆盖公开工具目录与路由 113/113，AWI 6/9 真算+3 代理。剩余差距是通用工具领域语义验收、地图、外部 provider、关系/表达真算、全量跑、统计 power 和检测器校准。
+afi-platform **平台闭环 100% 跑通**（A1-A4），B1 已覆盖公开工具目录与路由 113/113，当前 24 个工具专用化、89 个仍为通用实现；AWI 6/9 真算+3 代理。剩余差距是通用工具领域语义验收、BlogSpace 到 M6 的传播指标接入、地图、外部 provider、关系/表达真算、全量跑、统计 power 和检测器校准。

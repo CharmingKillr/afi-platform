@@ -78,6 +78,11 @@ _CATEGORY_PURPOSES = {
 _SPECIALIZED_OWNERS = {
     "list_landmarks": "LandmarkSpace",
     "send_message": "SimpleSocialSpaceAuditable",
+    **{
+        name: "BlogSpace"
+        for name in EW_TOOLS_BY_CATEGORY["content"]
+        if name in {"write_blog", "update_blog", "delete_blog", "comment_on_blog", "list_blogs", "read_blog"}
+    },
     **{name: "PlanningSpace" for name in EW_TOOLS_BY_CATEGORY["planning"]},
     **{name: "EconomySpace" for name in EW_TOOLS_BY_CATEGORY["economy"]},
 }
