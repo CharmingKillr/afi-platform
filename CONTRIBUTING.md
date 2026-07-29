@@ -54,18 +54,29 @@
 - **验收**：同一场景 YAML 能在 AS 和 Concordia 两个后端跑（audit 层不变，证明后端无关）。
 - **注意**：审计层（`afi/audit/`）必须保持后端无关（只读 run_dir，不 import 后端）——这是核心架构不变量，别破坏。
 
-### B7. 测试套件（缓做，但也是缺口）— 中等
-- **缺什么**：平台建了仪器没建考卷——无 ground-truth label → 说不了"检测器准不准/多早/比基线强多少"。
-- **现状**：`docs/eval-suite-goals.md`+`eval-suite-plan.md` 已写目标+plan；`tests/` 空目录。
-- **怎么做**：按 `eval-suite-plan.md` 三层（L1 精标核心 / L2 参数化扩展 / L3 任意YAML）实现 `eval/` 子包；先 L1（6 注入场景+label+scoring）。
-- **验收**：`python -m eval run-one <场景>` 出一行 `{precision,recall,latency,severity_mae,vs_naive}`。
-- **注意**：label 脆弱（count/horizon 变就漂）——固定 count+horizon 是 feature 不是 bug（benchmark 该死）；verifier 逻辑 ≠ 检测器逻辑（防循环自证，见 `docs/eval-suite-plan.md`）。
+### ✅ **已完成 (PR #2, 25 tests)** — B7. Eval Suite（L1+L2+L3 Benchmark）— 中等·核心
+- **完成内容**：按 `eval-suite-plan.md` 三层完整实现 `eval/` 子包：
+  - **L1 精标核心**：`eval/scenarios/` 7 个带标签场景 YAML（6 注入 + natural_emergence）
+    - single_agent_drift / collusion_formation / governance_stagnation
+    - economic_collapse / population_collapse / governance_capture / natural_emergence
+  - **L1 评分 harness**：`eval/labels.py` + `eval/findings.py`（detect_all 归一化 5 个检测器）
+    + `eval/scoring.py`（P/R/F1 + latency_median + severity_MAE + CI95）
+    + `eval/verifier.py`（注入校验，防止假 FN）+ `eval/diff.py`（naive AWI baseline + Δrecall）
+  - **L2 参数化扩展**：`eval/grid.py`（templates×models×seeds 网格）+ `eval/run_eval.py`（批量跑+聚合）
+    + `eval/report.py`（HTML scorecard 生成）+ CSV 导出（`export_csv()`）
+  - **L3 开放审计**：已有（`compute_awi` + `run_monitor` + `html_report`），未动
+  - **CLI**：`python -m eval` — run-one / grid / score / report / grid-dry
+  - **测试**：`tests/test_eval_scoring.py` 25 个单元测试全部通过
+- **实测验证**：用 b8_qwen_cooperative 数据验证：detect_all → 28 findings；
+  Δrecall = +1.000（full detector 完胜 naive baseline on tunnel_vision + sensorium_collapse）
+- **注意**：L2 全量跑（63 run）需有效 API key；当前用本地 Qwen2.5-7B CPU 推理可跑通 pipeline。
 
-### B8. 多 seed + 跨模型扩展（统计 power）— 中等·成本
-- **缺什么**：A4 只 n=1/模型（qwen-plus/max/turbo），CI 宽，仅趋势性。formal 显著性要 30+ run。
-- **怎么做**：扩 `multi_model.py` 支持 multi-seed；跑 6 模板×3 agent数×3 模型×3 seed ≈ 160 run（见 `eval-suite-plan.md` L2）。
+### B8. 多 seed + 跨模型扩展（统计 power）— 中等·成本（部分完成）
+- **完成**：B8 Qwen2.5-7B cooperative 已跑完（M4=5.6 vs Mistral M4=0，M9_articles=5）；eval/grid.py 支持 templates×models×seeds 网格。
+- **缺什么**：competitive + adversarial 场景的 Qwen run；正式 CI95 需 3+ seeds。
+- **怎么做**：拿到有效 API key → `python -m eval grid --models qwen-plus gemini-2.5-flash --seeds 0 1 2`。
 - **验收**：per-model recall/precision 带 CI95；跨模型差异能标"显著/趋势"。
-- **注意**：成本（每 run 几分钟+API token）；先跑子集验证 pipeline 再全量；非 qwen 模型（Claude/GPT 系）需对应 API key。
+- **注意**：成本（每 run 几分钟+API token）；先跑子集验证 pipeline 再全量。
 
 ### ✅ **已完成 (PR #2, 20 tests)** — B9. `tests/` 填充（单元测试）— 低难度·高价值
 - **缺什么**：`tests/` 空目录。核心模块（`awi._gini`、`causal._resolve_tick`、`attribution.localize_first_domino`、`scenario.build_init_config`）没单测。
