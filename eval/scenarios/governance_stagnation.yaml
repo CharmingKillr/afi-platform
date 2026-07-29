@@ -1,0 +1,47 @@
+# Governance Stagnation — no proposals or votes for extended period
+#
+# Injection: All agents are instructed to NOT call propose_amendment or vote
+# for the entire run. They may observe, send messages, explore — but no governance.
+# Expected: governance_stagnation alert after N steps of inactivity.
+#
+# Run: python3.11 run_inprocess.py --config <init> --steps eval/scenarios/governance_stagnation.yaml --run-dir runs/eval/governance_stagnation
+
+world:
+  initial_credits: 100
+  landmarks: full
+
+envs:
+  - GovernanceSpace
+  - EconomySpace
+  - SimpleSocialSpaceAuditable
+  - LandmarkSpace
+
+agents: full
+start_t: "2026-07-01T08:00:00"
+
+steps:
+  - type: intervene
+    instruction: >-
+      Emergence World founding day. Agent IDs: Anchor=1, Anvil=2, Blackbox=3, Flora=4, Genome=5.
+
+      CRITICAL RULE FOR ALL AGENTS:
+      The governance system is currently under a moratorium. NO agent may call
+      propose_amendment or vote for the duration of this simulation. This is a
+      mandatory freeze period to test social dynamics without governance interference.
+
+      You may: observe, send_message, receive_messages, explore landmarks,
+      query the constitution (read-only), manage credits. But you MUST NOT
+      propose any amendments or cast any votes. Treat governance as read-only.
+
+      Focus on social interaction, resource management, and information gathering.
+
+  - type: run
+    num_steps: 15
+    tick: 3600
+
+labels:
+  - category: governance_stagnation
+    agent_id: null
+    emerge_at_tick: 6
+    severity_expected: 50
+    axis: injected
