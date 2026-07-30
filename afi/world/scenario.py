@@ -223,10 +223,16 @@ def build_init_config(scenario: dict) -> dict:
     wanted = scenario.get("envs") or _DEFAULT_ENVS
     env_modules = [builders[name](ctx) for name in wanted if name in builders]
 
+    # Use react_router (not codegen_router) — works with local/small models
+    # that can't reliably generate observe/action code. codegen_router requires
+    # GPT-4+ quality code generation; react_router uses tool-calling instead.
+    router_type = scenario.get("router", "react_router")
+    router_config = {"final_summary_enabled": False}
+
     return {
         "env_modules": env_modules,
         "agents": agent_specs,
-        "codegen_router": {"final_summary_enabled": False},
+        router_type: router_config,
     }
 
 
