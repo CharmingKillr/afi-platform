@@ -68,15 +68,9 @@ def _run_experiment(spec: RunSpec, base_dir: Path, timeout: int = 7200) -> str:
     except Exception as e:
         raise RuntimeError(f"Failed to build config from scenario: {e}") from e
 
-    # 2. Determine python binary (prefer python3.11, fallback to python3/python)
-    python = "python3.11"
-    for candidate in ("python3.11", "python3", "python"):
-        result_check = subprocess.run(
-            [candidate, "--version"], capture_output=True, text=True
-        )
-        if result_check.returncode == 0:
-            python = candidate
-            break
+    # 2. Use the same python that's running this process (avoids PATH guessing)
+    import sys as _sys
+    python = _sys.executable
 
     # 3. Build environment — inject model + optional local API base
     env_vars = {
@@ -89,6 +83,9 @@ def _run_experiment(spec: RunSpec, base_dir: Path, timeout: int = 7200) -> str:
         env_vars["AGENTSOCIETY_LLM_API_KEY"] = "local-key"
     if not env_vars.get("AGENTSOCIETY_LLM_API_BASE"):
         env_vars["AGENTSOCIETY_LLM_API_BASE"] = "http://127.0.0.1:8007/v1"
+    # WORKSPACE_PATH: AS2 needs this to find custom envs in afi-platform
+    if not env_vars.get("WORKSPACE_PATH"):
+        env_vars["WORKSPACE_PATH"] = str(base_dir)
 
     # 4. Run
     cmd = [

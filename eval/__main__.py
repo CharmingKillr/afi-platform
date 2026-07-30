@@ -53,7 +53,11 @@ from eval.report import generate_scorecard_html
 def _save_report(report: EvalReport, out_stem: str):
     """Save HTML + CSV + JSON from a report."""
     out = Path(out_stem)
+    # out itself may be a file stem (no extension), create its parent dir
     out.parent.mkdir(parents=True, exist_ok=True)
+    # Also ensure out as a dir doesn't conflict (if out is a dir not a stem)
+    if out.is_dir():
+        out = out / "scorecard"
 
     html_path = Path(str(out) + ".html")
     generate_scorecard_html(report, html_path)
