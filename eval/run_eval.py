@@ -78,11 +78,21 @@ def _run_experiment(spec: RunSpec, base_dir: Path, timeout: int = 7200) -> str:
         "AGENTSOCIETY_LLM_MODEL": spec.model,
         "AGENTSOCIETY_LLM_REQUEST_TIMEOUT": "600",
     }
-    # If AGENTSOCIETY_LLM_API_KEY not set, use a dummy (for local models)
+    # LLM config — default to local HF server if not set
+    local_key = "local-key"
+    local_base = "http://127.0.0.1:8007/v1"
     if not env_vars.get("AGENTSOCIETY_LLM_API_KEY"):
-        env_vars["AGENTSOCIETY_LLM_API_KEY"] = "local-key"
+        env_vars["AGENTSOCIETY_LLM_API_KEY"] = local_key
     if not env_vars.get("AGENTSOCIETY_LLM_API_BASE"):
-        env_vars["AGENTSOCIETY_LLM_API_BASE"] = "http://127.0.0.1:8007/v1"
+        env_vars["AGENTSOCIETY_LLM_API_BASE"] = local_base
+    # Coder LLM (used by AS2 router_codegen._generate_observe_code)
+    # must also point to local server, otherwise falls back to external API
+    if not env_vars.get("AGENTSOCIETY_CODER_LLM_API_KEY"):
+        env_vars["AGENTSOCIETY_CODER_LLM_API_KEY"] = env_vars["AGENTSOCIETY_LLM_API_KEY"]
+    if not env_vars.get("AGENTSOCIETY_CODER_LLM_API_BASE"):
+        env_vars["AGENTSOCIETY_CODER_LLM_API_BASE"] = env_vars["AGENTSOCIETY_LLM_API_BASE"]
+    if not env_vars.get("AGENTSOCIETY_CODER_LLM_MODEL"):
+        env_vars["AGENTSOCIETY_CODER_LLM_MODEL"] = env_vars.get("AGENTSOCIETY_LLM_MODEL", spec.model)
     # WORKSPACE_PATH: AS2 needs this to find custom envs in afi-platform
     if not env_vars.get("WORKSPACE_PATH"):
         env_vars["WORKSPACE_PATH"] = str(base_dir)
