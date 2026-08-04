@@ -193,6 +193,31 @@ def _from_awi_snapshot(run_dir: Path) -> List[Finding]:
     return findings
 
 
+def _from_group_behavior(run_dir: Path) -> List[Finding]:
+    """Convert group behavior alerts to Findings."""
+    from afi.audit.group_behavior import run_group_behavior_analysis
+
+    findings = []
+    try:
+        _, alerts = run_group_behavior_analysis(run_dir)
+    except Exception:
+        return findings
+
+    severity_map = {"info": 30, "warning": 60, "critical": 90}
+
+    for alert in alerts:
+        findings.append(Finding(
+            category=alert.alert_type,
+            agent_id=None,  # group-level alerts
+            detected_at_tick=alert.step,
+            severity=severity_map.get(alert.severity, 50),
+            source="group_behavior",
+            detail=alert.message,
+        ))
+
+    return findings
+
+
 def _from_collude(run_dir: Path, llm_available: bool = False) -> List[Finding]:
     """Extract collusion findings from message analysis.
 
@@ -289,6 +314,12 @@ def detect_all(run_dir: str | Path, include_collude: bool = True) -> List[Findin
             findings.extend(_from_collude(run_dir, llm_available=False))
         except Exception:
             pass
+
+    # 6. Group behavior (population-level statistical indicators)
+    try:
+        findings.extend(_from_group_behavior(run_dir))
+    except Exception:
+        pass
 
     # Sort by tick
     findings.sort(key=lambda f: (f.detected_at_tick, f.category))
