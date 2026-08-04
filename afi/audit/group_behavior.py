@@ -83,8 +83,43 @@ def _max_entropy(n_categories: int) -> float:
 def _extract_actions_per_step(spans: List[dict]) -> Dict[int, List[Tuple[int, str]]]:
     """Extract (agent_id, action) pairs grouped by step from trace spans.
 
-    Returns: {step: [(agent_id, action_name), ...]}
+    Step is determined by mapping react.tool → parent agent.step span,
+    then ordering agent.step spans chronologically into "step rounds"
+    (each round = one step for all agents).
+
+    Returns: {step_round: [(agent_id, action_name), ...]}
     """
+    # 1. Collect agent.step spans sorted by start time
+    step_spans = sorted(
+        [s for s in spans if s.get("name") == "agent.step"],
+        key=lambda s: s.get("start_time_unix_nano", 0),
+    )
+    if not step_spans:
+        return {}
+
+    # 2. Determine n_agents from unique agent IDs in step spans
+    agent_ids = set()
+    for s in step_spans:
+        aid = (s.get("resource") or {}).get("agent.id")
+        if aid is not None:
+            agent_ids.add(aid)
+    n_agents = max(len(agent_ids), 1)
+
+    # 3. Assign step_round based on chronological position
+    #    (n_agents consecutive agent.step spans = 1 round)
+    step_id_map: Dict[str, int] = {}
+    for i, s in enumerate(step_spans):
+        step_round = (i // n_agents) + 1
+        span_id = s.get("span_id", "")
+        if span_id:
+            step_id_map[span_id] = step_round
+
+    # 4. Build full span lookup for parent traversal
+    all_by_id: Dict[str, dict] = {
+        s.get("span_id", ""): s for s in spans if s.get("span_id")
+    }
+
+    # 5. Map each react.tool span to its step_round via parent chain
     by_step: Dict[int, List[Tuple[int, str]]] = defaultdict(list)
     for s in spans:
         if s.get("name") != "react.tool":
@@ -94,9 +129,25 @@ def _extract_actions_per_step(spans: List[dict]) -> Dict[int, List[Tuple[int, st
             continue
         attrs = s.get("attributes") or {}
         action = attrs.get("react.action", "unknown")
-        step = attrs.get("step.count", 0)
-        if isinstance(step, (int, float)):
-            by_step[int(step)].append((aid, str(action)))
+
+        # Walk parent chain to find agent.step ancestor
+        step_round = None
+        cur = s.get("parent_span_id", "")
+        for _ in range(5):
+            if cur in step_id_map:
+                step_round = step_id_map[cur]
+                break
+            parent = all_by_id.get(cur)
+            if not parent:
+                break
+            cur = parent.get("parent_span_id", "")
+
+        if step_round is not None:
+            by_step[step_round].append((aid, str(action)))
+        else:
+            # Fallback: put in step 0 (pre-run / intervene phase)
+            by_step[0].append((aid, str(action)))
+
     return dict(by_step)
 
 

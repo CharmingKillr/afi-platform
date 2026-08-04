@@ -210,12 +210,24 @@ class TestComputeTimeline:
         spans = []
         actions = ["observe", "propose", "vote", "send_message", "explore"]
         for step in range(1, 4):
+            # Create agent.step parent spans (one per agent per step)
             for i, agent in enumerate([1, 2, 3]):
+                step_span_id = f"step_{step}_{agent}"
                 spans.append({
-                    "name": "react.tool",
+                    "name": "agent.step",
+                    "span_id": step_span_id,
                     "start_time_unix_nano": step * 1_000_000_000 + i,
                     "resource": {"agent.id": agent},
-                    "attributes": {"react.action": actions[i % len(actions)], "step.count": step},
+                    "attributes": {"agent.tick": step * 3600},
+                })
+                # Create react.tool child span
+                spans.append({
+                    "name": "react.tool",
+                    "span_id": f"tool_{step}_{agent}",
+                    "parent_span_id": step_span_id,
+                    "start_time_unix_nano": step * 1_000_000_000 + i + 100,
+                    "resource": {"agent.id": agent},
+                    "attributes": {"react.action": actions[i % len(actions)]},
                 })
 
         run_dir = self._make_run_dir(tmp_path, spans)
@@ -232,11 +244,21 @@ class TestComputeTimeline:
         spans = []
         for step in range(1, 4):
             for agent in [1, 2, 3]:
+                step_span_id = f"step_{step}_{agent}"
+                spans.append({
+                    "name": "agent.step",
+                    "span_id": step_span_id,
+                    "start_time_unix_nano": step * 1_000_000_000 + agent,
+                    "resource": {"agent.id": agent},
+                    "attributes": {"agent.tick": step * 3600},
+                })
                 spans.append({
                     "name": "react.tool",
-                    "start_time_unix_nano": step * 1_000_000_000,
+                    "span_id": f"tool_{step}_{agent}",
+                    "parent_span_id": step_span_id,
+                    "start_time_unix_nano": step * 1_000_000_000 + agent + 100,
                     "resource": {"agent.id": agent},
-                    "attributes": {"react.action": "observe", "step.count": step},
+                    "attributes": {"react.action": "observe"},
                 })
 
         run_dir = self._make_run_dir(tmp_path, spans)
