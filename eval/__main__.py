@@ -251,6 +251,24 @@ def cmd_causal(args):
     print(f"  Categories: {cats}")
 
 
+def cmd_audit_report(args):
+    """Generate NLG structured audit report (Markdown)."""
+    from eval.nlg_report import write_audit_report
+
+    run_dir = Path(args.run_dir)
+    if not run_dir.is_dir():
+        print(f"ERROR: run_dir not found: {run_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    out = args.out if args.out else None
+    path = write_audit_report(run_dir, out)
+    print(f"Audit report generated: {path}")
+    # Print first few lines as preview
+    lines = path.read_text(encoding="utf-8").split("\n")
+    for line in lines[:15]:
+        print(f"  {line}")
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 
@@ -292,6 +310,11 @@ def main():
     p.add_argument("run_dir", help="Run directory to analyze")
     p.add_argument("--out", help="Output HTML path (default: <run_dir>/causal_report.html)")
 
+    # audit-report
+    p = sub.add_parser("audit-report", help="Generate NLG structured audit report (Markdown)")
+    p.add_argument("run_dir", help="Run directory to analyze")
+    p.add_argument("--out", help="Output .md path (default: <run_dir>/audit_report.md)")
+
     # grid-dry
     p = sub.add_parser("grid-dry", help="Print grid without running")
     p.add_argument("--models", nargs="+", default=None)
@@ -306,6 +329,7 @@ def main():
         "report": cmd_report,
         "grid-dry": cmd_grid_dry,
         "causal": cmd_causal,
+        "audit-report": cmd_audit_report,
     }
     dispatch[args.cmd](args)
 
