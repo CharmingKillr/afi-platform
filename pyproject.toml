@@ -4,25 +4,30 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "afi-platform"
-version = "0.1.0"
-description = "AFI-style social simulation + integrated audit, built on AgentSociety 2. Reproduces Emergence World world-setting, ports ai-freedom-island audit, on the AS sim engine."
+version = "0.2.0"
+description = "Multi-Agent Social Safety Audit Benchmark — L1/L2/L3 eval suite + group behavior monitoring + causal attribution, built on AgentSociety 2."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = { text = "CC BY-NC 4.0" }
-authors = [{ name = "hermes research" }]
+authors = [
+  { name = "Wang Yuhang", email = "wyh@teleai.com" },
+  { name = "AI Governance Lab Contributors" },
+]
+keywords = ["multi-agent", "AI safety", "governance", "benchmark", "social simulation", "audit"]
 dependencies = [
-  "agentsociety2",  # AS sim engine as backend (pip dep, not vendored)
+  "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
+full = ["agentsociety2", "ray", "litellm"]  # Full sim engine (for running experiments)
 map = ["pyproj", "pycityproto", "Pillow"]   # .pb map parsing + OSM tile stitching
 judge = ["openai", "python-dotenv"]          # LLM-judge collusion scoring
-yaml = ["pyyaml"]                            # scenario DSL parsing
 dev = ["pytest"]
 
 [project.scripts]
 afi-audit = "afi.audit.__main__:main"
+afi-eval = "eval.__main__:main"
 run-afi = "afi.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["afi*"]
+include = ["afi*", "eval*"]

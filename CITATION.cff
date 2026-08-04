@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this software in your research, please cite it as below."
+title: "AI Governance Lab: Multi-Agent Social Safety Audit Benchmark"
+type: software
+authors:
+  - family-names: "Wang"
+    given-names: "Yuhang"
+    affiliation: "TeleAI"
+  - name: "AI Governance Lab Contributors"
+repository-code: "https://github.com/wyh7/afi-platform"
+license: CC-BY-NC-4.0
+version: "0.2.0"
+date-released: "2026-08-05"
+keywords:
+  - multi-agent systems
+  - AI safety
+  - governance
+  - benchmark
+  - social simulation
+  - agent society
+  - audit
+abstract: >-
+  AI Governance Lab (AIGL) is an open-source benchmark platform for evaluating
+  safety risks in long-horizon, weakly-constrained multi-agent social simulations.
+  Built on AgentSociety 2 (Tsinghua) with Emergence World social settings,
+  it provides: (1) L1 precision-labeled scenarios with ground-truth risk annotations,
+  (2) L2 parameterized grid for cross-model statistical comparison,
+  (3) L3 open audit on arbitrary simulation runs,
+  (4) 6 group behavior statistical indicators (G1-G6) for population-level monitoring,
+  (5) causal attribution visualization tracing findings to root causes,
+  and (6) NLG-based structured audit report generation.
