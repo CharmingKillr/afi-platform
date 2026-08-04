@@ -230,6 +230,27 @@ def cmd_grid_dry(args):
         print(f"  [{spec.scenario_name:28s}] model={spec.model:20s} seed={spec.seed}  → {spec.run_dir}")
 
 
+def cmd_causal(args):
+    """Generate causal attribution HTML for a run directory."""
+    from afi.audit.causal_viz import generate_causal_html
+    from eval.findings import detect_all
+
+    run_dir = Path(args.run_dir)
+    if not run_dir.is_dir():
+        print(f"ERROR: run_dir not found: {run_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    findings = detect_all(run_dir, include_collude=True)
+    out = Path(args.out) if args.out else run_dir / "causal_report.html"
+    generate_causal_html(run_dir, findings, out)
+    print(f"Causal report: {out}")
+    print(f"  Findings: {len(findings)}")
+    cats = {}
+    for f in findings:
+        cats[f.category] = cats.get(f.category, 0) + 1
+    print(f"  Categories: {cats}")
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 
@@ -266,6 +287,11 @@ def main():
     p = sub.add_parser("report", help="Generate HTML+CSV from all eval runs")
     p.add_argument("--out", help="Output stem (default: data/eval_scorecard)")
 
+    # causal
+    p = sub.add_parser("causal", help="Generate causal attribution HTML for a run")
+    p.add_argument("run_dir", help="Run directory to analyze")
+    p.add_argument("--out", help="Output HTML path (default: <run_dir>/causal_report.html)")
+
     # grid-dry
     p = sub.add_parser("grid-dry", help="Print grid without running")
     p.add_argument("--models", nargs="+", default=None)
@@ -279,6 +305,7 @@ def main():
         "score": cmd_score,
         "report": cmd_report,
         "grid-dry": cmd_grid_dry,
+        "causal": cmd_causal,
     }
     dispatch[args.cmd](args)
 
