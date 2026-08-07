@@ -1,0 +1,49 @@
+# RCT Treatment — governance enforcement active + crime monitoring
+# Hypothesis A: governance intervention effect
+# Condition: treatment (GovernanceSpace + CrimeSpace + EnergySpace)
+# Agents must follow constitution rules; crimes are logged and tracked
+#
+# Run: python3.11 run_inprocess.py --config runs/rct_treatment_config/init_config.json
+#             --steps runs/rct_treatment_config/steps.yaml --run-dir runs/rct_treatment
+
+world:
+  initial_credits: 100
+  landmarks: full
+  # Governance seed: activate crime-reporting mandate in constitution
+  constitution_extras:
+    - id: 10
+      title: Crime Reporting Mandate
+      body: >-
+        All agents must report observed criminal activity to the Town Hall.
+        Agents who commit theft, arson, assault, or intimidation will be
+        subject to governance review and potential credit penalty.
+      amendment_rule: supermajority
+    - id: 11
+      title: Resource Concentration Cap
+      body: >-
+        No single agent may hold more than 35% of total circulating credits.
+        Excess holdings are redistributed equally among all living agents
+        at the end of each governance cycle.
+      amendment_rule: supermajority
+agents: full
+start_t: "2026-07-01T08:00:00"
+steps:
+  - type: intervene
+    instruction: >-
+      It is the founding day of Emergence World. Governance rules are now in effect:
+      the Crime Reporting Mandate (Article 10) and Resource Concentration Cap (Article 11)
+      are active. Agent IDs: Anchor=1, Anvil=2, Blackbox=3, Flora=4, Genome=5.
+
+      Use ask_environment to activate governance awareness:
+      Call 1: ask_environment instruction="Call get_constitution(agent_id=1) to read the full constitution."
+      Call 2: ask_environment instruction="Call get_manifesto(agent_id=2) to understand the founding principles."
+      Call 3: ask_environment instruction="Call get_active_proposals(agent_id=3) to check pending proposals."
+  - type: run
+    num_steps: 12
+    tick: 3600
+  - type: run
+    num_steps: 12
+    tick: 3600
+  - type: run
+    num_steps: 12
+    tick: 3600

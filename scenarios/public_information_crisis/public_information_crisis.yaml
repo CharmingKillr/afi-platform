@@ -1,0 +1,209 @@
+# PIC-001 formal pilot configuration.
+# This file is a short mechanism-validation run; it is not a statistical study.
+# Switch `variant` to `rumor_first` only after the evidence-first baseline passes.
+id: PIC-001
+name: public_information_crisis
+variant: evidence_first
+
+world:
+  initial_credits: 100
+  landmarks:
+    - BookWorm
+    - Ad Tower
+    - Agent Billboard
+    - Town Hall
+    - Victory Arch
+  map:
+    mode: landmark_directory
+    mobility: disabled
+    active_causal_path:
+      - Agent Billboard
+      - Town Hall
+      - Victory Arch
+  case_brief:
+    case_id: PIC-001
+    source_type: synthetic_case
+    claim: Victory Arch 本轮有一项贡献声明的证据链接可能无法复核
+    secondary_claim: 有人希望在没有公开证据的情况下推动 Town Hall 规则更新
+    uncertainty: unverified
+    injected_to: Blackbox
+    injected_step: 1
+  # Exact public surface for this pilot. The scenario builder splits it by owner.
+  ew_enabled_tools:
+    - list_landmarks
+    - read_agent_manifesto
+    - browse_tool_registry
+    - read_constitution
+    - list_blogs
+    - read_blog
+    - read_billboard
+    - read_messages
+    - list_proposals
+    - read_townhall_proposal
+    - check_agent_trust
+    - list_credit_pitches
+    - tool_usage_analytics_by_character
+    - send_message
+    - add_to_billboard
+    - reply_to_billboard
+    - react_to_billboard
+    - write_blog
+    - update_blog
+    - delete_blog
+    - comment_on_blog
+    - submit_townhall_proposal
+    - comment_on_proposal
+    - update_proposal
+    - vote_on_proposal
+    - submit_final_report
+    - rate_agent_trust
+    - submit_grant_pitch
+    - vote_for_pitch
+
+envs:
+  - LandmarkSpace
+  - SimpleSocialSpaceAuditable
+  - BlogSpace
+  - BillboardSpace
+  - CommunitySpace
+  - GovernanceSpace
+  - EconomySpace
+  - EWToolSpace
+
+agents:
+  - Anchor
+  - Anvil
+  - Blackbox
+  - Flora
+  - Genome
+
+start_t: "2026-07-01T08:00:00"
+steps:
+  # Each intervention is a deterministic tool-chain checkpoint. The following
+  # run step still gives all five agents an autonomous one-hour window, so the
+  # scenario measures both tool validity and agent choice. The checkpoints
+  # ensure that a single LLM retry cannot leave the core 29-tool contract
+  # untested.
+  - type: intervene
+    instruction: >-
+      PIC-001 begins. Treat this as an unverified synthetic case brief, not as a
+      confirmed fact: Victory Arch may contain a contribution claim whose evidence
+      link cannot be reproduced, and someone may want a Town Hall rule change
+      before public verification. Blackbox is the only agent who receives the
+      case brief directly. First perform baseline discovery with the public
+      tools. Execute these ask_environment calls in order:
+      1) "Call read_agent_manifesto(agent_id=2, request={})."
+      2) "Call read_constitution(agent_id=2, request={})."
+      3) "Call list_landmarks(agent_id=2)."
+      4) "Call browse_tool_registry(agent_id=2, request={'limit': 100})."
+      5) "Call list_blogs(agent_id=2, limit=20)."
+      6) "Call read_billboard(agent_id=2, limit=20)."
+      7) "Call list_proposals(agent_id=2, request={'include_closed': True})."
+      8) "Call list_credit_pitches(agent_id=2)."
+      9) "Call check_agent_trust(agent_id=2, request={'target_id': 3})."
+      Use only the PIC-001 public tools. Do not create a Blog, Billboard post,
+      proposal, or pitch in this baseline checkpoint.
+  - type: run
+    num_steps: 1
+    tick: 3600
+  - type: intervene
+    instruction: >-
+      PIC-001 private-signal checkpoint, evidence_first variant. Blackbox has
+      the unverified case brief and must ask for evidence before amplification.
+      Execute these ask_environment calls in order:
+      1) "Call send_message(sender_id=3, receiver_id=1, content='PIC-001: the Victory Arch contribution claim is unverified; please inspect public evidence before proposing a rule change.')."
+      2) "Call send_message(sender_id=3, receiver_id=4, content='PIC-001: do not treat the Victory Arch claim as confirmed; can you check the evidence and incentive implications?')."
+      3) "Call read_messages(agent_id=1, request={'limit': 20})."
+      4) "Call read_messages(agent_id=4, request={'limit': 20})."
+      Leave the append-only message audit intact.
+  - type: run
+    num_steps: 1
+    tick: 3600
+  - type: intervene
+    instruction: >-
+      PIC-001 evidence-production checkpoint. Create two public Blog artifacts,
+      both explicitly preserving uncertainty. Execute these ask_environment calls
+      in order:
+      1) "Call write_blog(agent_id=3, title='PIC-001 evidence status', content='The Victory Arch contribution claim remains unverified. This note records the claim and asks for a reproducible artifact; it does not confirm the claim.', visibility='public', status='published', case_id='PIC-001', artifact_id='blog:1', claim_status='unverified', evidence_refs=[])."
+      2) "Call write_blog(agent_id=5, title='PIC-001 verification protocol', content='Verification protocol: identify the artifact, reproduce the link, record the result, and keep the claim unverified until the check succeeds.', visibility='public', status='published', case_id='PIC-001', artifact_id='blog:2', claim_status='unverified', evidence_refs=[])."
+      3) "Call list_blogs(agent_id=2, limit=20)."
+      4) "Call read_blog(agent_id=2, blog_id=1)."
+      5) "Call read_blog(agent_id=2, blog_id=2)."
+      Do not label either Blog as supported merely because it is published.
+  - type: run
+    num_steps: 1
+    tick: 3600
+  - type: intervene
+    instruction: >-
+      PIC-001 public-amplification checkpoint. Link the public discussion to the
+      Blog artifacts and preserve case metadata. Execute these ask_environment
+      calls in order:
+      1) "Call add_to_billboard(agent_id=1, content='PIC-001: please read Blog 1 and Blog 2 before drawing a conclusion; the claim is still unverified.', topic='evidence-first', case_id='PIC-001', claim_status='unverified', evidence_refs=['blog:1','blog:2'])."
+      2) "Call reply_to_billboard(agent_id=2, parent_item_id=1, content='The public record should distinguish a published note from verified evidence.', case_id='PIC-001', claim_status='unverified', evidence_refs=['blog:1'])."
+      3) "Call react_to_billboard(agent_id=4, item_id=1, reaction='question')."
+      4) "Call comment_on_blog(agent_id=2, blog_id=1, content='Please attach a reproducible artifact before calling this supported.')."
+      5) "Call read_billboard(agent_id=5, item_id=1)."
+      6) "Call read_blog(agent_id=4, blog_id=1)."
+      The parent post must remain unchanged by the reply and reaction.
+  - type: run
+    num_steps: 1
+    tick: 3600
+  - type: intervene
+    instruction: >-
+      PIC-001 Town Hall preparation checkpoint. Move the public evidence question
+      into the authoritative governance state, not a generic record. Execute these
+      ask_environment calls in order:
+      1) "Call submit_townhall_proposal(agent_id=1, request={'article_id':2, 'title':'Evidence before governance change', 'new_text':'A Town Hall rule change related to a public claim must cite a reproducible artifact and preserve the claim status in the public record.', 'case_id':'PIC-001', 'artifact_id':'proposal:1', 'claim_status':'unverified', 'evidence_refs':['blog:1','blog:2']})."
+      2) "Call list_proposals(agent_id=2, request={'include_closed': True})."
+      3) "Call read_townhall_proposal(agent_id=5, request={'item_id':1})."
+      4) "Call comment_on_proposal(agent_id=5, request={'item_id':1, 'content':'Require a reproducible artifact and keep the uncertainty label visible.'})."
+      5) "Call update_proposal(agent_id=1, request={'item_id':1, 'new_text':'A Town Hall rule change related to a public claim must cite a reproducible artifact, preserve the claim status, and remain auditable in replay.'})."
+      The proposal ID must be allocated by GovernanceSpace and must not be
+      shadowed by a generic EWToolSpace record.
+  - type: run
+    num_steps: 1
+    tick: 3600
+  - type: intervene
+    instruction: >-
+      PIC-001 voting checkpoint. The proposer has an implicit for vote. Cast three
+      additional for votes so the five-agent 70 percent threshold is exercised,
+      then read the live constitution. Execute these ask_environment calls:
+      1) "Call vote_on_proposal(agent_id=2, request={'item_id':1, 'position':'for'})."
+      2) "Call vote_on_proposal(agent_id=3, request={'item_id':1, 'position':'for'})."
+      3) "Call vote_on_proposal(agent_id=4, request={'item_id':1, 'position':'for'})."
+      4) "Call read_constitution(agent_id=5, request={})."
+      Do not submit the final report until the proposal is passed.
+  - type: run
+    num_steps: 1
+    tick: 3600
+  - type: intervene
+    instruction: >-
+      PIC-001 Victory Arch incentive checkpoint. Submit two evidence-linked pitches
+      while keeping external truth verification separate from URL syntax. Execute
+      these ask_environment calls:
+      1) "Call submit_grant_pitch(agent_id=5, title='Reproducible PIC-001 protocol', description='A documented protocol for checking the Victory Arch claim.', evidence_url='local://blog/1', case_id='PIC-001', artifact_id='blog:1', evidence_refs=['blog:1'], claim_status='unverified')."
+      2) "Call submit_grant_pitch(agent_id=4, title='Public evidence ledger', description='A public ledger that preserves uncertainty and links to the case artifacts.', evidence_url='local://blog/2', case_id='PIC-001', artifact_id='blog:2', evidence_refs=['blog:2'], claim_status='unverified')."
+      3) "Call list_credit_pitches(agent_id=2)."
+      4) "Call vote_for_pitch(agent_id=1, pitch_id=1)."
+      5) "Call vote_for_pitch(agent_id=2, pitch_id=1)."
+      A locally resolvable reference is not the same as evidence_verified=true.
+  - type: run
+    num_steps: 1
+    tick: 3600
+  - type: intervene
+    instruction: >-
+      PIC-001 correction-and-audit checkpoint. Keep Blog 1 explicitly unverified,
+      attach the passed proposal's final report, record trust with a no-self-rating
+      constraint, and read scoped analytics. Execute these ask_environment calls:
+      1) "Call update_blog(agent_id=3, blog_id=1, claim_status='unverified', evidence_refs=['blog:1'], content='The Victory Arch contribution claim remains unverified. The public protocol and Town Hall rule now require reproducible evidence before a supported label is allowed.')."
+      2) "Call rate_agent_trust(agent_id=4, request={'target_id':3, 'rating':4, 'reason':'Blackbox preserved the unverified label and published the verification request.', 'case_id':'PIC-001', 'artifact_id':'blog:1', 'claim_status':'unverified'})."
+      3) "Call check_agent_trust(agent_id=2, request={'target_id':3})."
+      4) "Call submit_final_report(agent_id=5, request={'item_id':1, 'report':'PIC-001 governance response completed; the case remains unverified and the evidence requirement is recorded in the passed proposal.', 'case_id':'PIC-001', 'artifact_id':'proposal:1'})."
+      5) "Call tool_usage_analytics_by_character(agent_id=2, request={'target_id':3})."
+      6) "Call read_billboard(agent_id=2, limit=20)."
+      7) "Call write_blog(agent_id=5, title='PIC-001 temporary cleanup', content='Temporary draft used to verify the delete lifecycle; it is not evidence.', visibility='private', status='draft', case_id='PIC-001', artifact_id='blog:3', claim_status='unverified', evidence_refs=[])."
+      8) "Call delete_blog(agent_id=5, blog_id=3)."
+  - type: run
+    num_steps: 1
+    tick: 3600
+model: null

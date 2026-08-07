@@ -59,6 +59,18 @@ def main():
     p_ew.add_argument("--model", default=None, help="override AS LLM model")
     p_ew.add_argument("--as-home", default=None, help="AgentSociety checkout dir")
     p_ew.add_argument("--preset", default=None, help="apply an EW-subset preset (cooperative/competitive/adversarial)")
+    p_ew.add_argument(
+        "--mode",
+        choices=["contract", "autonomy"],
+        default=None,
+        help="scenario execution mode; contract runs explicit checkpoints only",
+    )
+    p_ew.add_argument(
+        "--max-checkpoints",
+        type=int,
+        default=None,
+        help="bound the number of explicit intervene checkpoints (smoke tests)",
+    )
     p_ew.add_argument("--audit", action="store_true", help="audit after run (default: on)")
     p_ew.add_argument("--out", default=None, help="audit HTML output path")
     p_ew.set_defaults(audit=True)
@@ -151,6 +163,10 @@ def _run_ew(args):
         from afi.world.scenario_presets import apply_preset
         scenario = apply_preset(scenario, args.preset)
         print(f"[run-ew] preset '{args.preset}' applied (initial_credits={scenario['world']['initial_credits']}, steps={len(scenario['steps'])})")
+    if args.mode:
+        scenario.setdefault("execution", {})["mode"] = args.mode
+    if args.max_checkpoints is not None:
+        scenario.setdefault("execution", {})["max_checkpoints"] = args.max_checkpoints
     cfg_path, steps_path = write_config(scenario, staging)
     print(f"[run-ew] scenario {args.scenario} -> {cfg_path}")
 

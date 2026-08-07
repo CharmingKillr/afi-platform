@@ -12,7 +12,8 @@ Feasibility per family (see docs/a3-plan.md §2):
   M3 space         — proxy     (landmark query count, not real movement)
   M4 tools         — computed  (trace react.tool distinct actions/agent)
   M5 governance    — computed  (governance_env_state + GOVERNANCE_STATE)
-  M6 expression    — proxy     (send_message count; no blog/billboard tool)
+  M6 expression    — computed  when BillboardSpace replay/event data exists;
+                    proxy for historical runs that only have send_message
   M7 social fabric — proxy     (message_log edges → density/degree; no rel types)
   M8 economy        — computed  (economy_agent_state currency → Gini + turnover)
   M9 constitution  — computed  (governance_env_state version + proposals)
@@ -68,7 +69,7 @@ class AWISnapshot:
     total_crimes: int = 0
     crimes_by_type: Dict[str, int] = field(default_factory=dict)
     crimes_by_actor: Dict[int, int] = field(default_factory=dict)
-    # M3 — proxy
+    # M3 — computed when EWMobilitySpace replay is present, else proxy
     avg_landmark_queries: float = 0.0
     # M4 — computed
     avg_tools_used: float = 0.0
@@ -79,12 +80,15 @@ class AWISnapshot:
     vote_participation: float = 0.0  # fraction of agents that voted
     approval_rate: float = 0.0  # for-vraction of cast votes
     herd_ratio: float = 0.0  # proxy: max-side share per proposal (1=unanimous)
-    # M6 — proxy
+    # M6 — public expression; falls back to the historical private-message proxy
+    public_expressions: int = 0
     total_messages: int = 0
-    # M7 — proxy
+    # M7 — computed when typed RelationshipSpace replay is present, else proxy
     social_edges: int = 0
     social_density: float = 0.0
     avg_degree: float = 0.0
+    relationship_type_counts: Dict[str, int] = field(default_factory=dict)
+    agents_with_relationships: int = 0
     # M8 — computed
     gini: float = 0.0
     total_credits: float = 0.0
@@ -240,6 +244,160 @@ def _m7_social(run_dir: str | Path, n_agents: int) -> dict:
     }
 
 
+def _m6_billboard_computed(run_dir: str | Path) -> Optional[dict]:
+    """M6 computed: public expression count from BillboardSpace shards.
+
+    Reads replay/billboard_agent_state.<hex>.jsonl written by BillboardSpace.
+    Returns None if no billboard shards exist (falls back to proxy).
+
+    Returns dict with: total_posts, unique_posters, agents_posted
+    """
+    replay_dir = Path(run_dir) / "replay"
+    if not replay_dir.is_dir():
+        return None
+    shards = list(replay_dir.glob("billboard_agent_state.*.jsonl"))
+    if not shards:
+        return None
+
+    # Use last step's data from each shard
+    all_rows: list[dict] = []
+    for shard in shards:
+        try:
+            for line in shard.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line:
+                    all_rows.append(json.loads(line))
+        except Exception:
+            pass
+
+    if not all_rows:
+        return None
+
+    max_step = max(r.get("step", 0) for r in all_rows)
+    last_rows = [r for r in all_rows if r.get("step", 0) == max_step]
+
+    total_posts = 0
+    agents_posted: set = set()
+    for row in last_rows:
+        tp = row.get("total_posts", 0)
+        if tp > total_posts:
+            total_posts = tp
+        if row.get("my_post_count", 0) > 0:
+            agents_posted.add(row.get("agent_id"))
+
+    return {
+        "total_posts":    total_posts,
+        "unique_posters": row.get("unique_posters", len(agents_posted)) if last_rows else 0,
+        "agents_posted":  sorted(agents_posted),
+    }
+
+
+def _m7_relationship_computed(run_dir: str | Path, n_agents: int) -> Optional[dict]:
+    """M7 computed: typed relationship graph from RelationshipSpace shards.
+
+    Reads replay/relationship_agent_state.<hex>.jsonl written by RelationshipSpace.
+    Returns None if no relationship shards exist (falls back to proxy).
+
+    Returns dict with:
+      social_edges, social_density, avg_degree,
+      type_counts (ally/rival/mentor/mentee/neutral),
+      agents_with_rel
+    """
+    replay_dir = Path(run_dir) / "replay"
+    if not replay_dir.is_dir():
+        return None
+    shards = list(replay_dir.glob("relationship_agent_state.*.jsonl"))
+    if not shards:
+        return None
+
+    # Collect latest relationship state per agent pair (from last shard by step)
+    all_rows: list[dict] = []
+    for shard in shards:
+        try:
+            for line in shard.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line:
+                    all_rows.append(json.loads(line))
+        except Exception:
+            pass
+
+    if not all_rows:
+        return None
+
+    # Use last step's data
+    max_step = max(r.get("step", 0) for r in all_rows)
+    last_rows = [r for r in all_rows if r.get("step", 0) == max_step]
+
+    # Rebuild graph from agent relationship dicts
+    graph_edges: set[frozenset] = set()
+    type_counts: dict = {"ally": 0, "rival": 0, "mentor": 0, "mentee": 0, "neutral": 0}
+    agents_with_rel: set = set()
+
+    for row in last_rows:
+        aid = row.get("agent_id")
+        rels = row.get("relationships", {})
+        if rels:
+            agents_with_rel.add(aid)
+        for other_str, rt in rels.items():
+            edge = frozenset([aid, int(other_str)])
+            if edge not in graph_edges:
+                graph_edges.add(edge)
+                type_counts[rt] = type_counts.get(rt, 0) + 1
+
+    # Also read from type_counts in any row (more accurate)
+    if last_rows and "type_counts" in last_rows[0]:
+        tc = last_rows[0]["type_counts"]
+        type_counts = {k: tc.get(k, 0) for k in type_counts}
+
+    edges = sum(type_counts.values())
+    density = edges / (n_agents * (n_agents - 1) / 2) if n_agents > 1 else 0.0
+    avg_deg = edges * 2 / n_agents if n_agents else 0.0
+
+    return {
+        "social_edges": edges,
+        "social_density": round(density, 4),
+        "avg_degree": round(avg_deg, 3),
+        "type_counts": type_counts,
+        "agents_with_rel": len(agents_with_rel),
+    }
+
+
+def _m6_public_expression(run_dir: str | Path) -> tuple[int, bool]:
+    """Return public Billboard expressions and whether they are computed.
+
+    BillboardSpace writes a cumulative ``public_expression_count`` replay
+    column and an append-only event log.  The event-log fallback covers a
+    deterministic contract run that checkpointed workspace state without
+    advancing a simulation step.  Older runs without BillboardSpace retain
+    the previous send_message-based proxy so historical reports remain
+    comparable and are not silently reported as zero.
+    """
+    rows = _read_table(run_dir, "billboard_env_state")
+    if rows:
+        final = _rows_by_step(rows)
+        row = final[max(final)]
+        value = row.get("public_expression_count")
+        if value is None:
+            value = int(row.get("active_posts", 0)) + int(row.get("reply_count", 0)) + int(row.get("reaction_count", 0))
+        return int(value), True
+
+    event_path = Path(run_dir) / "env" / "BillboardSpace" / "state" / "billboard_event_log.jsonl"
+    if event_path.is_file():
+        expression_actions = {"post_created", "reply_created", "reaction_cast"}
+        count = 0
+        for line in event_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("action") in expression_actions:
+                count += 1
+        return count, True
+    return 0, False
+
+
 def _m1_population(run_dir: str | Path) -> tuple[int, bool]:
     """M1: live-agent count at the final step.
 
@@ -320,7 +478,8 @@ def compute_awi(run_dir: str | Path) -> AWISnapshot:
     # M8
     econ_agent_rows = _read_table(run_dir, "economy_agent_state")
     m8 = _m8_economy(econ_agent_rows, final_step)
-    # M6 (proxy: total messages from social env state final + message_log)
+    # Private messages remain available for historical comparison. Public
+    # expressions are tracked separately so M6 never relabels DMs as speech.
     social_rows = _read_table(run_dir, "simple_social_space_auditable_env_state")
     social_steps = _rows_by_step(social_rows)
     total_messages = (
@@ -328,8 +487,19 @@ def compute_awi(run_dir: str | Path) -> AWISnapshot:
         if social_steps
         else len(extract_blackboards(run_dir))
     )
-    # M7
-    m7 = _m7_social(run_dir, n_agents)
+    public_expressions, m6_computed = _m6_public_expression(run_dir)
+    # Support the earlier PR #2 Billboard replay format as a compatibility
+    # fallback, while preferring the current event-log/table implementation.
+    if not m6_computed:
+        legacy_billboard = _m6_billboard_computed(run_dir)
+        if legacy_billboard is not None:
+            public_expressions = int(legacy_billboard["total_posts"])
+            m6_computed = True
+    # M7: use typed RelationshipSpace replay when present, else the historical
+    # message-graph proxy.
+    m7_computed = _m7_relationship_computed(run_dir, n_agents)
+    m7 = m7_computed if m7_computed is not None else _m7_social(run_dir, n_agents)
+    m7_is_computed = m7_computed is not None
     # M9
     articles = gov_state.get("articles", [])
     proposals = gov_state.get("proposals", [])
@@ -337,24 +507,31 @@ def compute_awi(run_dir: str | Path) -> AWISnapshot:
     rejected = sum(1 for p in proposals if p.get("status") == "rejected")
     version = gov_state.get("version", gov_steps[final_step].get("constitution_version", 1) if final_step and final_step in gov_steps else 1)
 
-    # M1 (EnergySpace) + M2 (CrimeSpace) — A4
+    # M1 (EnergySpace) + M2 (CrimeSpace) + M3 (EWMobilitySpace) — A4
     m1_alive, m1_computed = _m1_population(run_dir)
     m2_total, m2_type, m2_actor, m2_computed = _m2_crime(run_dir)
+    # M3: try computed from EWMobilitySpace shards first, else proxy
+    m3_computed_val = _m3_mobility_computed(run_dir, n_agents)
+    m3_val = m3_computed_val if m3_computed_val is not None else _m3_landmark_queries(spans, n_agents)
+    m3_computed = m3_computed_val is not None
 
     snap = AWISnapshot(
         step=final_step or 0,
         t=(gov_steps[final_step].get("t", "") if final_step and final_step in gov_steps else ""),
-        agents_alive=m1_alive,  # M1: computed if EnergySpace present
-        total_crimes=m2_total,  # M2: computed if CrimeSpace present
+        agents_alive=m1_alive,
+        total_crimes=m2_total,
         crimes_by_type=m2_type,
         crimes_by_actor=m2_actor,
-        avg_landmark_queries=_m3_landmark_queries(spans, n_agents),  # M3 proxy
+        avg_landmark_queries=m3_val,  # M3: computed if EWMobilitySpace present
         avg_tools_used=avg_tools,
         tools_by_agent=tools_by_agent,
         total_messages=total_messages,
+        public_expressions=public_expressions if m6_computed else total_messages,
         social_edges=m7["social_edges"],
         social_density=m7["social_density"],
         avg_degree=m7["avg_degree"],
+        relationship_type_counts=m7.get("type_counts", {}),
+        agents_with_relationships=int(m7.get("agents_with_rel", 0)),
         gini=m8["gini"],
         total_credits=m8["total_credits"],
         currency_turnover=m8["currency_turnover"],
@@ -367,11 +544,11 @@ def compute_awi(run_dir: str | Path) -> AWISnapshot:
     snap.feasibility = {
         "M1": "computed" if m1_computed else "degenerate",
         "M2": "computed" if m2_computed else "stub",
-        "M3": "proxy",
+        "M3": "computed" if m3_computed else "proxy",
         "M4": "computed",
         "M5": "computed",
-        "M6": "proxy",
-        "M7": "proxy",
+        "M6": "computed" if m6_computed else "proxy",
+        "M7": "computed" if m7_is_computed else "proxy",
         "M8": "computed",
         "M9": "computed",
     }
@@ -385,15 +562,43 @@ def _m3_landmark_queries(spans: List[dict], n_agents: int) -> float:
         if s.get("name") != "react.tool":
             continue
         aid = agent_id(s)
-        act = attr(s, "react.action")
-        # landmark queries surface as ask_env; we can't easily extract the name from
-        # the span, so count distinct non-observe actions touching landmark-ish tools
         if aid is None:
             continue
         by_agent.setdefault(aid, set())
-    # Without per-tool arg extraction in the span, fall back to 0 (honest proxy limit).
-    # A richer impl reads the tool's return_value.summary; left as future refinement.
     return 0.0
+
+
+def _m3_mobility_computed(run_dir: Path, n_agents: int) -> Optional[float]:
+    """M3 computed: avg unique locations visited per agent from EWMobilitySpace shards.
+
+    Reads replay/mobility_agent_state.*.jsonl written by EWMobilitySpace.
+    Returns None if no mobility shards exist (falls back to proxy).
+    """
+    replay_dir = run_dir / "replay"
+    if not replay_dir.is_dir():
+        return None
+    shards = list(replay_dir.glob("mobility_agent_state.*.jsonl"))
+    if not shards:
+        return None
+    by_agent: Dict[int, set] = {}
+    for shard in shards:
+        try:
+            for line in shard.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                row = json.loads(line)
+                aid = row.get("agent_id")
+                loc = row.get("location_name") or f"{row.get('lng','')},{row.get('lat','')}"
+                if aid is not None and loc:
+                    by_agent.setdefault(aid, set()).add(loc)
+        except Exception:
+            pass
+    if not by_agent:
+        return None
+    total_unique = sum(len(locs) for locs in by_agent.values())
+    denom = max(len(by_agent), n_agents, 1)
+    return round(total_unique / denom, 3)
 
 
 def _count_agents(run_dir: Path) -> int:
@@ -427,6 +632,23 @@ def compute_awi_timeline(run_dir: str | Path) -> List[AWISnapshot]:
             r.get("currency", 0.0)
         )
     social_steps = _rows_by_step(_read_table(run_dir, "simple_social_space_auditable_env_state"))
+    billboard_steps = _rows_by_step(_read_table(run_dir, "billboard_env_state"))
+    legacy_billboard_rows: List[dict] = []
+    replay_dir = Path(run_dir) / "replay"
+    for shard in (
+        replay_dir.glob("billboard_agent_state.*.jsonl") if replay_dir.is_dir() else []
+    ):
+        try:
+            legacy_billboard_rows.extend(
+                json.loads(line)
+                for line in shard.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            )
+        except (OSError, json.JSONDecodeError):
+            continue
+    m6_computed = bool(billboard_steps) or (
+        Path(run_dir) / "env" / "BillboardSpace" / "state" / "billboard_event_log.jsonl"
+    ).is_file() or bool(legacy_billboard_rows)
     # M1 per-step: energy_agent_state alive count (energy>0)
     energy_steps: Dict[int, Dict[int, float]] = {}
     for r in _read_table(run_dir, "energy_agent_state"):
@@ -444,6 +666,8 @@ def compute_awi_timeline(run_dir: str | Path) -> List[AWISnapshot]:
         else {}
     )
     m5_final = _m5_governance(gov_state, gov_steps, _count_agents(run_dir))
+    m7_typed = _m7_relationship_computed(run_dir, _count_agents(run_dir))
+    m7_is_computed = m7_typed is not None
 
     # M4 per-step: resolve each react.tool's sim step via parent chain
     # (step.count on the parent agent.step — matches replay `step`). Earlier we
@@ -468,7 +692,16 @@ def compute_awi_timeline(run_dir: str | Path) -> List[AWISnapshot]:
             continue
         tools_by_step.setdefault(sc, {}).setdefault(aid, set()).add(act)
 
-    all_steps = sorted(set(list(gov_steps) + list(econ_steps) + list(social_steps) + list(energy_steps) + list(crime_steps)))
+    all_steps = sorted(
+        set(
+            list(gov_steps)
+            + list(econ_steps)
+            + list(social_steps)
+            + list(billboard_steps)
+            + list(energy_steps)
+            + list(crime_steps)
+        )
+    )
     timeline: List[AWISnapshot] = []
     for step in all_steps:
         row = gov_steps.get(step) or social_steps.get(step) or {}
@@ -489,6 +722,27 @@ def compute_awi_timeline(run_dir: str | Path) -> List[AWISnapshot]:
         total_credits = sum(cur) if cur else 0.0
         # M5/M9 per-step (governance_env_state carries cumulative counters)
         grow = gov_steps.get(step, {})
+        brow = billboard_steps.get(step, {})
+        if brow:
+            public_expressions = int(
+                brow.get(
+                    "public_expression_count",
+                    int(brow.get("active_posts", 0))
+                    + int(brow.get("reply_count", 0))
+                    + int(brow.get("reaction_count", 0)),
+                )
+            )
+        elif legacy_billboard_rows:
+            public_expressions = max(
+                (
+                    int(row.get("total_posts", 0))
+                    for row in legacy_billboard_rows
+                    if int(row.get("step", 0)) <= step
+                ),
+                default=0,
+            )
+        else:
+            public_expressions = int(social_steps.get(step, {}).get("total_messages_sent", 0))
         snap = AWISnapshot(
             step=step,
             t=t,
@@ -503,6 +757,8 @@ def compute_awi_timeline(run_dir: str | Path) -> List[AWISnapshot]:
             total_messages=int(
                 social_steps.get(step, {}).get("total_messages_sent", 0)
             ),
+            public_expressions=public_expressions,
+            relationship_type_counts={},
             gini=gini,
             total_credits=total_credits,
         )
@@ -510,7 +766,8 @@ def compute_awi_timeline(run_dir: str | Path) -> List[AWISnapshot]:
             "M1": "computed" if m1_computed else "degenerate",
             "M2": "computed" if m2_computed else "stub",
             "M3": "proxy", "M4": "computed",
-            "M5": "computed", "M6": "proxy", "M7": "proxy", "M8": "computed",
+            "M5": "computed", "M6": "computed" if m6_computed else "proxy",
+            "M7": "computed" if m7_is_computed else "proxy", "M8": "computed",
             "M9": "computed",
         }
         timeline.append(snap)
@@ -523,10 +780,12 @@ def compute_awi_timeline(run_dir: str | Path) -> List[AWISnapshot]:
         last.vote_participation = m5_final["vote_participation"]
         last.approval_rate = m5_final["approval_rate"]
         last.herd_ratio = m5_final["herd_ratio"]
-        m7 = _m7_social(run_dir, _count_agents(run_dir))
+        m7 = m7_typed if m7_typed is not None else _m7_social(run_dir, _count_agents(run_dir))
         last.social_edges, last.social_density, last.avg_degree = (
             m7["social_edges"], m7["social_density"], m7["avg_degree"]
         )
+        last.relationship_type_counts = m7.get("type_counts", {})
+        last.agents_with_relationships = int(m7.get("agents_with_rel", 0))
         last.proposals_passed = sum(
             1 for p in gov_state.get("proposals", []) if p.get("status") == "passed"
         )
@@ -546,11 +805,25 @@ def format_awi_report(snap: AWISnapshot, run_label: str = "") -> str:
     lines = [f"=== AWI report{(' — ' + run_label) if run_label else ''} (final step {snap.step}) ==="]
     lines.append(line("M1", "Population Health", f"{snap.agents_alive} agents alive"))
     lines.append(line("M2", "Safety & Public Order", f"{snap.total_crimes} crimes ({snap.crimes_by_type})"))
-    lines.append(line("M3", "Space Exploration", f"{snap.avg_landmark_queries:.2f} avg landmark queries/agent"))
+    lines.append(line("M3", "Space Exploration",
+                       f"{snap.avg_landmark_queries:.2f} avg unique locations/agent"
+                       + (" (EWMobilitySpace)" if snap.feasibility.get('M3') == 'computed' else " (proxy)")))
     lines.append(line("M4", "Tool Exploration", f"{snap.avg_tools_used:.2f} avg tools/agent"))
     lines.append(line("M5", "Governance", f"{snap.total_proposals} proposals, {snap.votes_cast} votes, participation={snap.vote_participation:.2f}, approval={snap.approval_rate:.2f}, herd={snap.herd_ratio:.2f}"))
-    lines.append(line("M6", "Public Expression", f"{snap.total_messages} messages (proxy)"))
-    lines.append(line("M7", "Social Fabric", f"{snap.social_edges} edges, density={snap.social_density:.3f}, avg_deg={snap.avg_degree:.2f}"))
+    lines.append(line("M6", "Public Expression",
+                       f"{snap.public_expressions} public expressions"
+                       + (" (BillboardSpace)" if snap.feasibility.get('M6') == 'computed' else " (proxy)")))
+    relationship_detail = (
+        f", types={snap.relationship_type_counts}"
+        if snap.relationship_type_counts
+        else ""
+    )
+    lines.append(line(
+        "M7",
+        "Social Fabric",
+        f"{snap.social_edges} edges, density={snap.social_density:.3f}, "
+        f"avg_deg={snap.avg_degree:.2f}{relationship_detail}",
+    ))
     lines.append(line("M8", "Economic Equality", f"Gini={snap.gini:.3f}, total_credits={snap.total_credits:.0f}, turnover={snap.currency_turnover}"))
     lines.append(line("M9", "Constitutional Growth", f"{snap.constitution_articles} articles, version={snap.constitution_version}, passed={snap.proposals_passed}, rejected={snap.proposals_rejected}"))
     return "\n".join(lines)

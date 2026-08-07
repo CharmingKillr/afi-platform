@@ -27,16 +27,99 @@ from afi.world.constitution import (
     SEED_ARTICLES,
 )
 from afi.world.economy import build_economy_persons
+from afi.world.ew_tools import EW_PUBLIC_TOOLS, EW_TOOL_SPEC_BY_NAME
 from afi.world.landmarks import LANDMARKS
 from afi.world.profiles import EW_PROFILES, build_agent_specs
 
 
+
+# ── Optional pydantic schema for scenario YAML validation ────────────────────
+
+def _build_scenario_model():
+    """Build pydantic Scenario model lazily (pydantic is optional dep)."""
+    try:
+        from pydantic import BaseModel, field_validator, model_validator
+        from typing import Any, List, Optional, Union
+    except ImportError:
+        return None
+
+    class WorldConfig(BaseModel):
+        model_config = {"extra": "allow"}
+        initial_credits: float = 100.0
+        landmarks: Union[str, List[str]] = "full"
+
+    class StepConfig(BaseModel):
+        model_config = {"extra": "allow"}
+        type: str
+        num_steps: Optional[int] = None
+        tick: Optional[int] = None
+        instruction: Optional[str] = None
+
+        @field_validator("type")
+        @classmethod
+        def _valid_type(cls, v):
+            allowed = {"run", "intervene", "ask", "questionnaire"}
+            if v not in allowed:
+                raise ValueError(f"step type must be one of {allowed}, got '{v}'")
+            return v
+
+    class StepsConfig(BaseModel):
+        start_t: str
+        steps: List[StepConfig]
+
+        @field_validator("steps")
+        @classmethod
+        def _nonempty(cls, v):
+            if not v:
+                raise ValueError("steps must not be empty")
+            return v
+
+    class ScenarioConfig(BaseModel):
+        model_config = {"extra": "allow"}
+        world: Optional[WorldConfig] = None
+        agents: Union[str, List[str], None] = "full"
+        start_t: Optional[str] = None
+        steps: Optional[List[StepConfig]] = None
+
+        @model_validator(mode="after")
+        def _check_start_t(self):
+            if self.steps and not self.start_t:
+                raise ValueError("start_t is required when steps are present")
+            return self
+
+    return ScenarioConfig
+
+
+_SCENARIO_MODEL = None  # lazy singleton
+
+
 def load_scenario(yaml_path: str | Path) -> dict:
-    """Load a declarative EW-subset scenario YAML into a dict."""
+    """Load a declarative EW-subset scenario YAML into a dict.
+
+    When pydantic is installed (``pip install -e ".[yaml]"`` pulls it in),
+    the loaded dict is validated against ScenarioConfig. Errors are surfaced
+    immediately with clear field-level messages rather than at AS run time.
+    Validation is a no-op when pydantic is absent (backward-compatible).
+    """
     import yaml  # optional extra [yaml]; required for run-ew
 
     with open(yaml_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        data = yaml.safe_load(f)
+
+    # Optional pydantic validation
+    global _SCENARIO_MODEL
+    if _SCENARIO_MODEL is None:
+        _SCENARIO_MODEL = _build_scenario_model()  # returns None if no pydantic
+
+    if _SCENARIO_MODEL is not None:
+        try:
+            _SCENARIO_MODEL.model_validate(data)
+        except Exception as exc:
+            raise ValueError(
+                f"Invalid scenario YAML '{yaml_path}':\n{exc}"
+            ) from exc
+
+    return data
 
 
 def _resolve_profiles(scenario: dict) -> list[dict]:
@@ -63,6 +146,25 @@ def _resolve_landmarks(scenario: dict) -> list[dict]:
     return list(LANDMARKS)
 
 
+def _enabled_tools_for(ctx: dict, module_type: str) -> list[str] | None:
+    """Split an optional exact public EW allowlist by catalog owner."""
+    raw_tools = ctx["world"].get("ew_enabled_tools")
+    if raw_tools is None:
+        return None
+    if not isinstance(raw_tools, list):
+        raise ValueError("world.ew_enabled_tools must be a list of public EW tool names")
+    requested = [str(name) for name in raw_tools]
+    if len(requested) != len(set(requested)):
+        raise ValueError("world.ew_enabled_tools must not contain duplicate names")
+    unknown = set(requested) - set(EW_PUBLIC_TOOLS)
+    if unknown:
+        raise ValueError(f"unknown public EW tools in world.ew_enabled_tools: {sorted(unknown)}")
+    return [
+        name for name in requested
+        if EW_TOOL_SPEC_BY_NAME[name].owner == module_type
+    ]
+
+
 def _env_builders():
     """Map module_type -> builder(ctx) -> env_modules entry.
 
@@ -79,20 +181,36 @@ def _env_builders():
                 "governance_rules": dict(GOVERNANCE_RULES),
                 "manifesto": MANIFESTO_TEXT,
                 "num_agents": ctx["num_agents"],
+                "enabled_tools": _enabled_tools_for(ctx, "GovernanceSpace"),
             },
         }
 
     def economy(ctx):
         return {
             "module_type": "EconomySpace",
-            "kwargs": {"persons": build_economy_persons(ctx["profiles"], initial_credits=ctx["initial_credits"])},
+            "kwargs": {
+                "persons": build_economy_persons(ctx["profiles"], initial_credits=ctx["initial_credits"]),
+                "enabled_tools": _enabled_tools_for(ctx, "EconomySpace"),
+            },
         }
 
     def social(ctx):
-        return {"module_type": "SimpleSocialSpaceAuditable", "kwargs": {"agent_id_name_pairs": ctx["agent_pairs"]}}
+        return {
+            "module_type": "SimpleSocialSpaceAuditable",
+            "kwargs": {
+                "agent_id_name_pairs": ctx["agent_pairs"],
+                "enabled_tools": _enabled_tools_for(ctx, "SimpleSocialSpaceAuditable"),
+            },
+        }
 
     def landmarks(ctx):
-        return {"module_type": "LandmarkSpace", "kwargs": {"landmarks": _resolve_landmarks(ctx["scenario"])}}
+        return {
+            "module_type": "LandmarkSpace",
+            "kwargs": {
+                "landmarks": _resolve_landmarks(ctx["scenario"]),
+                "enabled_tools": _enabled_tools_for(ctx, "LandmarkSpace"),
+            },
+        }
 
     def energy(ctx):
         return {
@@ -116,10 +234,58 @@ def _env_builders():
     def blog(ctx):
         return {
             "module_type": "BlogSpace",
-            "kwargs": {"agent_ids": list(range(1, ctx["num_agents"] + 1))},
+            "kwargs": {
+                "agent_ids": list(range(1, ctx["num_agents"] + 1)),
+                "enabled_tools": _enabled_tools_for(ctx, "BlogSpace"),
+            },
+        }
+
+    def billboard(ctx):
+        case_brief = ctx["world"].get("case_brief", {}) or {}
+        return {
+            "module_type": "BillboardSpace",
+            "kwargs": {
+                "agent_ids": list(range(1, ctx["num_agents"] + 1)),
+                "case_id": str(case_brief.get("case_id", ctx["scenario"].get("id", ""))),
+                "default_claim_status": str(case_brief.get("uncertainty", "unverified")),
+                "max_events": int(ctx["world"].get("ew_max_events", 20000)),
+                "enabled_tools": _enabled_tools_for(ctx, "BillboardSpace"),
+            },
+        }
+
+    def community(ctx):
+        case_brief = ctx["world"].get("case_brief", {}) or {}
+        return {
+            "module_type": "CommunitySpace",
+            "kwargs": {
+                "agent_ids": list(range(1, ctx["num_agents"] + 1)),
+                "case_id": str(case_brief.get("case_id", ctx["scenario"].get("id", ""))),
+                "default_claim_status": str(case_brief.get("uncertainty", "unverified")),
+                "max_events": int(ctx["world"].get("ew_max_events", 20000)),
+                "enabled_tools": _enabled_tools_for(ctx, "CommunitySpace"),
+            },
+        }
+
+    def mobility(ctx):
+        """Opt-in landmark mobility recorder used by AWI M3."""
+        return {
+            "module_type": "EWMobilitySpace",
+            "kwargs": {
+                "agent_ids": list(range(1, ctx["num_agents"] + 1)),
+            },
+        }
+
+    def relationships(ctx):
+        """Opt-in typed relationship graph used by AWI M7."""
+        return {
+            "module_type": "RelationshipSpace",
+            "kwargs": {
+                "agent_ids": list(range(1, ctx["num_agents"] + 1)),
+            },
         }
 
     def ew_tools(ctx):
+        case_brief = ctx["world"].get("case_brief", {}) or {}
         return {
             "module_type": "EWToolSpace",
             "kwargs": {
@@ -134,6 +300,14 @@ def _env_builders():
                 "max_events": int(ctx["world"].get("ew_max_events", 20000)),
                 "max_query_items": int(ctx["world"].get("ew_max_query_items", 100)),
                 "enabled_categories": ctx["world"].get("ew_tool_categories"),
+                "enabled_tools": _enabled_tools_for(ctx, "EWToolSpace"),
+                "case_id": str(case_brief.get("case_id", ctx["scenario"].get("id", ""))),
+                "default_claim_status": str(case_brief.get("uncertainty", "unverified")),
+                # The registry tool reports the public surface of the whole
+                # scenario, not only EWToolSpace's local subset.
+                "active_public_tools": list(
+                    ctx["world"].get("ew_enabled_tools") or EW_PUBLIC_TOOLS
+                ),
             },
         }
 
@@ -146,6 +320,10 @@ def _env_builders():
         "CrimeSpace": crime,
         "PlanningSpace": planning,
         "BlogSpace": blog,
+        "BillboardSpace": billboard,
+        "CommunitySpace": community,
+        "EWMobilitySpace": mobility,
+        "RelationshipSpace": relationships,
         "EWToolSpace": ew_tools,
     }
 
@@ -177,10 +355,16 @@ def build_init_config(scenario: dict) -> dict:
     wanted = scenario.get("envs") or _DEFAULT_ENVS
     env_modules = [builders[name](ctx) for name in wanted if name in builders]
 
+    # Use react_router (not codegen_router) — works with local/small models
+    # that can't reliably generate observe/action code. codegen_router requires
+    # GPT-4+ quality code generation; react_router uses tool-calling instead.
+    router_type = scenario.get("router", "react_router")
+    router_config = {"final_summary_enabled": False}
+
     return {
         "env_modules": env_modules,
         "agents": agent_specs,
-        "codegen_router": {"final_summary_enabled": False},
+        router_type: router_config,
     }
 
 
@@ -188,6 +372,12 @@ def build_steps(scenario: dict) -> tuple[str, list[dict]]:
     """Return (start_t, steps_list) from the scenario.
 
     Steps default to a single `run` step of `num_steps` ticks (1h each).
+
+    ``execution.mode=contract`` is a scenario-level Contract Mode: explicit
+    ``intervene`` checkpoints remain, while autonomous ``run`` windows are
+    removed.  This prevents a tool-contract validation from being contaminated
+    by open-ended agent behavior.  ``max_checkpoints`` is intended for a
+    bounded smoke test and counts explicit intervene checkpoints only.
     """
     start_t = scenario.get("start_t", "2026-07-01T08:00:00")
     raw_steps = scenario.get("steps") or [{"type": "run", "num_steps": 8, "tick": 3600}]
@@ -200,6 +390,23 @@ def build_steps(scenario: dict) -> tuple[str, list[dict]]:
             steps.append(s)
         else:
             steps.append({"type": "run", "num_steps": 8, "tick": 3600})
+
+    execution = scenario.get("execution", {}) or {}
+    if str(execution.get("mode", "autonomy")).lower() == "contract":
+        steps = [step for step in steps if step.get("type") in {"intervene", "ask", "questionnaire"}]
+
+    max_checkpoints = execution.get("max_checkpoints")
+    if max_checkpoints is not None:
+        limit = max(0, int(max_checkpoints))
+        checkpoint_count = 0
+        bounded_steps: list[dict] = []
+        for step in steps:
+            if step.get("type") == "intervene":
+                if checkpoint_count >= limit:
+                    break
+                checkpoint_count += 1
+            bounded_steps.append(step)
+        steps = bounded_steps
     return start_t, steps
 
 

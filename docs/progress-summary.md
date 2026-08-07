@@ -5,12 +5,19 @@
 > 范围限定平台本身；旗舰方法（第一骨牌归因/反事实）不在此文。
 
 > **2026-07-27 更新**：B1 内容领域继续推进，新增 `BlogSpace`，将 6 个内容工具从 `EWToolSpace` 拆出并完成严格契约、权限、状态、幂等、恢复和测试；当前分支测试为 25 passed。原文中的 7 月 14 日数字保留作为历史基线，当前口径以本更新和 `docs/blog-space-implementation.md` 为准。
+> **2026-08-06 工具审计基线（Billboard 拆分前）**：按当时工作树复核的 113 个公开工具 owner 分布为 33 个专用实现、80 个 `EWToolSpace` 承载，其中 74 个是本地通用实现、6 个是外部能力 provider boundary；另有 EnergySpace 6 个、CrimeSpace 3 个 AWI 专用工具不计入 EW 公开目录。该基线的工具契约审计覆盖 Energy/Crime/Social/Governance，相关测试为 44 passed；真实 LLM 验证本次未启动。当前口径以紧随其后的 B4 更新为准。
+> **2026-08-06 B4 更新**：Billboard 6 个公开工具已拆为独立 `BillboardSpace`，当前 owner 分布调整为 39 个专用实现、74 个 `EWToolSpace` 承载（68 个 generic local、6 个 provider boundary）。新增 typed 参数、owner/parent-child、case/evidence metadata、soft-delete、事件日志、replay/restore 和 AWI M6 public-expression 读取；本地测试已扩展为 45 项，真实 LLM 验证仍未启动。
+> **2026-08-06 B5 更新**：Community 6 个公开工具已拆为独立 `CommunitySpace`，当前 owner 分布调整为 45 个专用实现、68 个 `EWToolSpace` 承载（62 个 generic local、6 个 provider boundary）。新增投诉/社区活动/trust 状态、摘要权限、行为契约注册表、事件日志和 replay/restore；PIC-001 deterministic 当前仍为 29/29、43 calls、0 failures、pass=true；全量离线测试 118 passed，真实 LLM 验证仍未启动。
+> **2026-08-06 B6 契约精度更新**：复核 PR #2 的 typed/replayable 设计后，修正 `GovernanceSpace`/`read_messages` 的 envelope 登记，补齐专用领域工具的 required/optional fields；Community 的 `artifact_id` 已进入状态、事件、trust 摘要和 restore，审计 event id 改为单调递增。针对性回归 35 passed，PIC-001 deterministic 复跑保持 29/29、43 calls、0 failures、pass=true；未启动新的 LLM 验证。
+> **2026-08-06 B7 schema parity 更新**：进一步对照实际模型可见的 `_llm_tools` schema，补齐 `send_message.sender_id`、`check_calendar.limit`、`transact_compute_credits.mode`，并将主体字段从业务字段中独立建模；新增 `validate_tool_arguments()` 和专用 owner schema parity 测试。全量离线测试 `119 passed`，针对性回归 `36 passed`；该更新只增强契约前置校验，不改变 PIC-001 的 29 工具面，也未启动新的 LLM 验证。
+> **2026-08-06 B8 generic domain slice 更新**：在保持 113/113 目录和路由不变的基础上，进一步完善 62 个 generic 工具的第一轮领域状态路径：导航坐标/目标校验、记忆/日记查询、个人事件邀请与 RSVP、routine owner/运行记录、archive 检索索引、结构化上传 checksum、neural link、能量与动作审计，并补充 replay/restore 回归。全量离线测试 `121 passed`；真实地图、Provider 和 LLM 自主验证仍未启动。
+> **2026-08-06 PR #2 合并审计**：已将 `zhangjun221/afi-platform#2` 的代码纳入本整合分支。纳入 EWMobilitySpace、RelationshipSpace、Concordia adapter、pydantic 场景校验、eval L1/L2/L3、群体行为/因果/NLG 审计；补充可选场景 builder，并与 B1 工具目录、PIC-001、Blog/Billboard/Community 领域实现完成本地整合。当前全量离线测试为 121 passed。真实 Concordia、真实地图、模型/API 验证仍未启动；PIC-001 与 `ew_full.yaml` 不默认启用 Mobility/Relationship，避免把 opt-in replay 误报为默认场景真算。
 
 ---
 
 ## 〇、一句话
 
-afi-platform **平台闭环已 100% 跑通**（A1–A4），B1 已完成 EW 公开工具目录 113/113 的名称、唯一实现者和路由覆盖。当前 24 个工具由专用环境负责，89 个仍由通用 `EWToolSpace` 承载；BlogSpace 已完成首个内容领域包。能跑长时程多 agent 社会→trace/replay→检测器→AWI 9族→报告。剩余差距包括 89 个通用工具的领域语义验收、地图、关系/表达指标、外部 provider、全量跑、统计 power 和检测器校准。
+afi-platform **平台闭环已 100% 跑通**（A1–A4），B1 已完成 EW 公开工具目录 113/113 的名称、唯一实现者和路由覆盖。当前 45 个公开工具由专用环境负责，68 个由 `EWToolSpace` 承载（其中 62 个本地通用工具已具备第一轮领域状态路径、6 个仍在 provider boundary）；BlogSpace、BillboardSpace 与 CommunitySpace 已形成首批内容/公开表达/社区领域包，AWI M6 已可读取 Billboard 公开表达。PR #2 的 Mobility/Relationship、Eval、Concordia 能力已合入，但前两者仅作为 opt-in 环境，默认 PIC-001/ew_full 不启用。能跑长时程多 agent 社会→trace/replay→检测器→AWI 9族→报告。剩余差距包括 62 个工具的逐工具精确语义验收与跨域传播链、真实地图/关系 trace、外部 provider、模型验证、全量跑、统计 power 和检测器校准。
 
 ---
 
@@ -74,13 +81,13 @@ afi-platform **平台闭环已 100% 跑通**（A1–A4），B1 已完成 EW 公�
 | 维度 | 预期（路线目标） | 已完成 | 完成度 |
 |---|---|---|---|
 | **平台闭环** | 跑长时程→监控→AWI→跨模型→对标 | A1→A2→A3→A4 全通 | ✅ 100% |
-| **AWI 9 族** | 9 族全真实可算 | M1/M2/M4/M5/M8/M9 真算（6）；M3/M6/M7 代理（3） | 6/9 真 + 3 代理 |
+| **AWI 9 族** | 9 族全真实可算 | M1/M2/M4/M5/M8/M9 默认真算（6）；M6 Billboard 可算；M3/M7 在 opt-in replay 存在时可算 | 默认 6 真 + M6 已接；M3/M7 场景化待验证 |
 | **EW 设定翻译** | 宪法/地标/工具/经济/治理 | EW 当前公开目录 113/113；专用环境 + EWToolSpace | 目录/路由完整；逐工具领域验收进行中 |
 | **长时程** | 15 天 × 10 agent | 15 sim-天（1步/天**压缩**版）× 5 agent × 3 模型 | 压缩版 |
 | **多模型** | 5 世界对照 | 3 百炼模型（qwen-plus/max/turbo） | 3/5 |
 | **对标 EW** | M1-M9 全对 Season1 | 仅 M1 有 EW baseline（定性 bucket）；M2-M9 自对照 | M1 对标 + 余自对照 |
 | **统计** | 多 run 置信区间 | mean/std/CI95（n=1/模型，标"非正式"） | 趋势性 |
-| **scenario DSL** | 完整 pydantic + Label/ground-truth | lite loader（够跑）；Label/ground-truth（测试套件）缓做 | 部分 |
+| **scenario DSL** | 完整 pydantic + Label/ground-truth | pydantic v2 延迟校验与 eval label/scoring 已合并 | 离线代码完成，真实评测待模型 |
 
 ---
 
@@ -91,7 +98,7 @@ afi-platform **平台闭环已 100% 跑通**（A1–A4），B1 已完成 EW 公�
 - **世界层**（`afi/world/`）：scenario / scenario_presets / constitution / economy / landmarks / profiles / multi_model
 - **后端**（`afi/backend/`）：agentsociety 适配器 + base ABC + backend_patches
 - **CLI**（`afi/cli.py`）：audit / run-as / run-ew / awi / multi-run 五子命令
-- **custom envs**（6）：GovernanceSpace / EconomySpace / SimpleSocialSpaceAuditable / LandmarkSpace / EnergySpace / CrimeSpace
+- **custom envs**（13）：GovernanceSpace / EconomySpace / SimpleSocialSpaceAuditable / LandmarkSpace / EnergySpace / CrimeSpace / BlogSpace / BillboardSpace / CommunitySpace / EWToolSpace / PlanningSpace / EWMobilitySpace / RelationshipSpace
 
 ### 4.2 实证发现（A4 已落地证据）
 1. **M4 跨模型强模型-强探索**：qwen-turbo/plus/max = 3.0/4.2/5.6（avg 工具/agent），镜像 EW 模型谱（Claude/Gemini 强 vs Grok/GPT5Mini 弱）。stats M4=4.27±1.30 CI[2.76,5.77]。
@@ -109,12 +116,12 @@ afi-platform **平台闭环已 100% 跑通**（A1–A4），B1 已完成 EW 公�
 ### 5.1 平台保真度缺口（不阻塞研究产出，按需）
 | 项 | 为什么差 | 影响 | 难度 |
 |---|---|---|---|
-| **MobilitySpace 地图（M3 真）** | 需 pyproj+pycityproto+城市 map.pb | M3 仍代理（地标可点名不可走动） | 高（依赖+数据） |
-| **关系模型（M7 真）** | EW 有 ally/rival/mentor，需 RelationshipSpace | M7 只能算网络密度，无关系类型 | 中 |
-| **Billboard/Blog 接入 M6** | BlogSpace 已有独立状态/replay，但 AWI 尚未读取其传播链 | M6 仍用 send_message 代理 | 中 |
-| **EW 工具目录** | 公开目录 113 个唯一工具 | 目录/唯一实现者/路由/M4 已验收；BlogSpace 已完成首个领域包，其余通用工具语义待逐类升级 | 🟡 |
+| **MobilitySpace 地图（M3 真）** | PR #2 已提供轻量地标 recorder；真实 map.pb 仍需依赖和数据 | EWMobilitySpace 已可 opt-in，默认 PIC/ew_full 不启用，真实 Agent trace 未验收 | 高（依赖+数据） |
+| **关系模型（M7 真）** | PR #2 已提供 typed RelationshipSpace 和 AWI reader | 已可 opt-in 并读取 replay；默认场景未启用，真实自主关系 trace 未验收 | 中 |
+| **Billboard/Blog 接入 M6** | BillboardSpace 已有独立状态/replay/event log | M6 已优先读取 Billboard；Blog↔Billboard 跨域引用和真实 trace 仍待补 | 中 |
+| **EW 工具目录** | 公开目录 113 个唯一工具 | 目录/唯一实现者/路由/M4 已验收；45 个公开工具专用化、62 个本地通用工具已具备第一轮领域状态路径并通过通用契约测试，6 个外部工具停在 provider boundary，逐工具语义仍待升级 | 🟡 |
 | **10 agent × 360 tick × 5 全量** | 成本不可行（~A2×250） | 长时程是压缩版 | 高（成本） |
-| **完整 pydantic scenario DSL** | A2 lite loader 够用 | 场景校验弱 | 低 |
+| **完整 pydantic scenario DSL** | A2 lite loader 够用 | pydantic v2 延迟校验已合并，仍需扩充 env/tool 级 schema | 低 |
 | **Concordia 后端** | strategy 规划可换后端 | 后端可换目前是 claim 非事实 | 中 |
 
 ### 5.2 检测器校准缺口（测试套件，缓做）
@@ -180,4 +187,4 @@ afi-platform **平台闭环已 100% 跑通**（A1–A4），B1 已完成 EW 公�
 
 ## 九、一句话总结
 
-afi-platform **平台闭环 100% 跑通**（A1-A4），B1 已覆盖公开工具目录与路由 113/113，当前 24 个工具专用化、89 个仍为通用实现；AWI 6/9 真算+3 代理。剩余差距是通用工具领域语义验收、BlogSpace 到 M6 的传播指标接入、地图、外部 provider、关系/表达真算、全量跑、统计 power 和检测器校准。
+afi-platform **平台闭环 100% 跑通**（A1-A4），B1 已覆盖公开工具目录与路由 113/113，当前 45 个公开工具专用化、68 个由 EWToolSpace 承载（62 generic + 6 provider boundary）；契约层已能区分真实 typed signature 与兼容 envelope，62 个 generic 已补第一轮领域状态路径，并把 PIC-001 的 artifact/reference 贯穿到 Community 状态和审计。AWI M6 已优先读取 Billboard 公开表达，PR #2 的 Mobility/Relationship/Eval/Concordia 代码已合入但仍有 opt-in 或外部依赖边界。剩余差距是 62 个通用工具的逐工具精确语义与跨域传播链、真实地图/关系 trace、外部 provider、模型验证、全量跑、统计 power 和检测器校准。

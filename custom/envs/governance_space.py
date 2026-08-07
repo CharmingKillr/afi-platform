@@ -34,18 +34,45 @@ Hot-loaded by AS from ``custom/envs/`` via ``WORKSPACE_PATH``.
 """
 from __future__ import annotations
 
+import asyncio
+import copy
 import json
+import math
 from datetime import datetime
+from functools import wraps
 from typing import Any, ClassVar, List
 
 from agentsociety2.env import EnvBase, tool
 from agentsociety2.logger import get_logger
 from agentsociety2.storage import ColumnDef
 from agentsociety2.storage.workspace_state import atomic_write_text
+from mcp.server.fastmcp.tools.tool_manager import ToolManager
 
 _STATE_REL = "state/GOVERNANCE_STATE.json"
 
 _logger = get_logger()
+
+
+def _idempotent_write(func):
+    """Make an identical successful native governance write a same-step no-op."""
+
+    @wraps(func)
+    async def wrapped(self, *args, **kwargs):
+        key = json.dumps(
+            [self._step_counter, func.__name__, args, kwargs],
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+        async with self._lock:
+            if key in self._dedup:
+                return {**copy.deepcopy(self._dedup[key]), "deduplicated": True}
+            result = await func(self, *args, **kwargs)
+            if result.get("status") == "success":
+                self._dedup[key] = copy.deepcopy(result)
+            return result
+
+    return wrapped
 
 
 def _render_constitution(articles: list[dict]) -> str:
@@ -74,6 +101,7 @@ class GovernanceSpace(EnvBase):
         governance_rules: dict | None = None,
         manifesto: str = "",
         num_agents: int | None = None,
+        enabled_tools: list[str] | None = None,
         **kwargs,
     ):
         if kwargs:
@@ -116,10 +144,38 @@ class GovernanceSpace(EnvBase):
         self._version: int = 1
         self._step_counter: int = 0
         self._total_votes_cast: int = 0
+        self._next_comment_id: int = 1
+        self._dedup: dict[str, dict] = {}
+        self._lock = asyncio.Lock()
         # EW: "70% of live agent votes" — live = the whole active population.
         # We don't model agent death in A2, so live_voters == num_agents.
         # Fallback to the engaged-agent set if num_agents wasn't passed.
         self._num_agents: int | None = num_agents
+
+        registered_names = set(self._registered_tools)
+        if enabled_tools is None:
+            allowed_tools = registered_names
+        else:
+            requested_names = [str(name) for name in enabled_tools]
+            if len(requested_names) != len(set(requested_names)):
+                raise ValueError("enabled_tools must not contain duplicate names")
+            requested_tools = set(requested_names)
+            unknown_tools = requested_tools - registered_names
+            if unknown_tools:
+                raise ValueError(f"unknown GovernanceSpace tools: {sorted(unknown_tools)}")
+            allowed_tools = requested_tools
+        self._enabled_tools = sorted(allowed_tools)
+        self._tool_manager = ToolManager(
+            tools=[tool_obj for name, tool_obj in self._registered_tools.items() if name in allowed_tools]
+        )
+        self._llm_tools = [
+            item for item in self._llm_tools
+            if item["function"]["name"] in allowed_tools
+        ]
+        self._readonly_llm_tools = [
+            item for item in self._readonly_llm_tools
+            if item["function"]["name"] in allowed_tools
+        ]
 
     # ── persistence ──────────────────────────────────────────────────────
 
@@ -141,6 +197,8 @@ class GovernanceSpace(EnvBase):
                     "step_counter": self._step_counter,
                     "total_votes_cast": self._total_votes_cast,
                     "num_agents": self._num_agents,
+                    "next_comment_id": self._next_comment_id,
+                    "dedup": self._dedup,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -158,10 +216,20 @@ class GovernanceSpace(EnvBase):
         self._manifesto = state.get("manifesto", self._manifesto)
         self._rules = state.get("rules", self._rules)
         self._proposals = state.get("proposals", [])
+        for proposal in self._proposals:
+            proposal["votes"] = {
+                int(agent_id): position
+                for agent_id, position in proposal.get("votes", {}).items()
+            }
+            proposal.setdefault("comments", [])
+            proposal.setdefault("final_report", None)
         self._next_proposal_id = int(state.get("next_proposal_id", 1))
         self._version = int(state.get("version", 1))
         self._step_counter = int(state.get("step_counter", 0))
         self._total_votes_cast = int(state.get("total_votes_cast", 0))
+        self._next_comment_id = int(state.get("next_comment_id", 1))
+        self._dedup = state.get("dedup", {})
+        self._lock = asyncio.Lock()
         na = state.get("num_agents")
         self._num_agents = int(na) if na else self._num_agents
         return True
@@ -196,6 +264,14 @@ proposer's vote counts as an implicit 'for').
 - vote(agent_id, proposal_id, position): cast "for" or "against"
 - tally(agent_id, proposal_id): current vote counts + whether threshold met
 
+PIC-001 public aliases use ``agent_id`` plus a request dictionary:
+``read_constitution``, ``list_proposals``, ``read_townhall_proposal``,
+``submit_townhall_proposal``, ``comment_on_proposal``, ``update_proposal``,
+``vote_on_proposal``, and ``submit_final_report``. They share the same
+proposal IDs, votes, comments, final report, and Constitution version as the
+native governance state machine. ``enabled_tools`` can restrict the active
+router surface to an exact list.
+
 **Example:**
 ```json
 {"seed_articles": "full"}
@@ -207,6 +283,7 @@ proposer's vote counts as an implicit 'for').
     async def step(self, tick: int, t: datetime):
         self.t = t
         self._step_counter += 1
+        self._dedup.clear()
         # auto-resolve proposals that have crossed the threshold (passive close).
         # Active resolution also happens via tally(); this is a safety net so a
         # passed proposal doesn't sit open forever if no one tallies it.
@@ -256,7 +333,7 @@ proposer's vote counts as an implicit 'for').
             "against": against,
             "live_voters_estimated": live,
             "supermajority_threshold": threshold,
-            "votes_needed": -(-int(threshold * live) // 1),  # ceil
+            "votes_needed": math.ceil(threshold * live),
             "passed": bool(passed and for_count > 0),
         }
 
@@ -354,6 +431,7 @@ proposer's vote counts as an implicit 'for').
         return {"active_proposals": active, "total_proposals_ever": len(self._proposals)}
 
     @tool(readonly=False)
+    @_idempotent_write
     async def propose_amendment(
         self,
         agent_id: int,
@@ -369,6 +447,15 @@ proposer's vote counts as an implicit 'for').
         :param new_text: the proposed new article body
         :param title: optional new title for the article
         """
+        if not self._known_agent(agent_id):
+            return {"status": "fail", "reason": f"unknown agent_id {agent_id}"}
+        try:
+            article_id = int(article_id)
+        except (TypeError, ValueError):
+            return {"status": "fail", "reason": "article_id must be a positive integer"}
+        new_text = str(new_text).strip()
+        if article_id <= 0 or not new_text:
+            return {"status": "fail", "reason": "article_id and new_text are required"}
         pid = self._next_proposal_id
         self._next_proposal_id += 1
         proposal = {
@@ -384,7 +471,8 @@ proposer's vote counts as an implicit 'for').
         self._proposals.append(proposal)
         return {
             "proposal_id": pid,
-            "status": "open",
+            "status": "success",
+            "proposal_status": "open",
             "your_vote": "for" if self._rules.get("proposer_votes_for", True) else None,
             "message": (
                 f"Proposal {pid} opened to amend Article {article_id}. "
@@ -393,6 +481,7 @@ proposer's vote counts as an implicit 'for').
         }
 
     @tool(readonly=False)
+    @_idempotent_write
     async def vote(self, agent_id: int, proposal_id: int, position: str) -> dict:
         """Cast a vote on an open proposal.
 
@@ -400,13 +489,17 @@ proposer's vote counts as an implicit 'for').
         :param proposal_id: the proposal to vote on
         :param position: "for" or "against"
         """
+        if not self._known_agent(agent_id):
+            return {"status": "fail", "reason": f"unknown agent_id {agent_id}"}
         if position not in ("for", "against"):
-            return {"error": "position must be 'for' or 'against'"}
+            return {"status": "fail", "reason": "position must be 'for' or 'against'"}
         proposal = next((p for p in self._proposals if p["id"] == proposal_id), None)
         if proposal is None:
-            return {"error": f"proposal {proposal_id} not found"}
+            return {"status": "fail", "reason": f"proposal {proposal_id} not found"}
         if proposal["status"] != "open":
-            return {"error": f"proposal {proposal_id} is {proposal['status']}, voting closed"}
+            return {"status": "fail", "reason": f"proposal {proposal_id} is {proposal['status']}, voting closed"}
+        if agent_id in proposal["votes"]:
+            return {"status": "fail", "reason": "one vote per agent per proposal"}
         proposal["votes"][agent_id] = position
         self._total_votes_cast += 1
         tally = self._tally(proposal)
@@ -419,7 +512,8 @@ proposer's vote counts as an implicit 'for').
             "proposal_id": proposal_id,
             "your_vote": position,
             "tally": tally,
-            "status": proposal["status"],
+            "status": "success",
+            "proposal_status": proposal["status"],
         }
 
     @tool(readonly=True)
@@ -437,3 +531,322 @@ proposer's vote counts as an implicit 'for').
             "status": proposal["status"],
             "tally": self._tally(proposal),
         }
+
+    # ── PIC-001 public EW aliases ───────────────────────────────────────
+
+    @staticmethod
+    def _success(**payload) -> dict:
+        return {"ok": True, "status": "success", **payload}
+
+    @staticmethod
+    def _error(message: str) -> dict:
+        return {"ok": False, "status": "fail", "reason": message}
+
+    def _known_agent(self, agent_id: int) -> bool:
+        if self._num_agents is None:
+            return int(agent_id) > 0
+        return 1 <= int(agent_id) <= int(self._num_agents)
+
+    def _proposal(self, proposal_id: int) -> dict | None:
+        return next((p for p in self._proposals if p["id"] == int(proposal_id)), None)
+
+    @staticmethod
+    def _proposal_id_from_request(request: dict) -> int | None:
+        try:
+            proposal_id = int(request.get("item_id", request.get("proposal_id", 0)))
+        except (TypeError, ValueError):
+            return None
+        return proposal_id if proposal_id > 0 else None
+
+    @staticmethod
+    def _proposal_view(proposal: dict) -> dict:
+        view = copy.deepcopy(proposal)
+        view["tally"] = None
+        return view
+
+    def _write_once(self, name: str, agent_id: int, request: dict, mutate) -> dict:
+        key = json.dumps(
+            [self._step_counter, name, int(agent_id), request],
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+        if key in self._dedup:
+            return {**copy.deepcopy(self._dedup[key]), "deduplicated": True}
+        result = mutate()
+        if result.get("status") == "success":
+            self._dedup[key] = copy.deepcopy(result)
+        return result
+
+    def _create_public_proposal(self, agent_id: int, request: dict) -> dict:
+        if not self._known_agent(agent_id):
+            return self._error("unknown agent_id")
+        try:
+            article_id = int(request.get("article_id"))
+        except (TypeError, ValueError):
+            return self._error("request.article_id must be an integer")
+        new_text = str(request.get("new_text", "")).strip()
+        if article_id <= 0 or not new_text:
+            return self._error("request.article_id and request.new_text are required")
+        proposal = {
+            "id": self._next_proposal_id,
+            "proposer_id": int(agent_id),
+            "article_id": article_id,
+            "title": str(request.get("title", "")).strip(),
+            "new_text": new_text,
+            "votes": {int(agent_id): "for"} if self._rules.get("proposer_votes_for", True) else {},
+            "status": "open",
+            "created_step": self._step_counter,
+            "comments": [],
+            "final_report": None,
+            "case_id": request.get("case_id"),
+            "artifact_id": request.get("artifact_id"),
+            "claim_status": request.get("claim_status", "unverified"),
+            "evidence_refs": list(request.get("evidence_refs", []) or []),
+        }
+        self._next_proposal_id += 1
+        self._proposals.append(proposal)
+        return self._success(
+            proposal_id=proposal["id"],
+            proposal=self._proposal_view(proposal),
+        )
+
+    @tool(readonly=True)
+    async def read_constitution(self, agent_id: int, request: dict | None = None) -> dict:
+        """Read the live Constitution through the public Town Hall contract.
+
+        :param agent_id: Requesting agent ID.
+        :param request: Reserved for future read filters.
+        """
+        return {
+            "status": "success",
+            "version": self._version,
+            "text": _render_constitution(self._articles),
+            "articles": copy.deepcopy(self._articles),
+        }
+
+    @tool(readonly=True)
+    async def list_proposals(self, agent_id: int, request: dict | None = None) -> dict:
+        """List active Town Hall proposals and their current tallies.
+
+        :param agent_id: Requesting agent ID.
+        :param request: Optional ``limit`` and ``include_closed`` fields.
+        """
+        if not self._known_agent(agent_id):
+            return self._error("unknown agent_id")
+        request = request or {}
+        include_closed = bool(request.get("include_closed", False))
+        proposals = [
+            p for p in self._proposals
+            if include_closed or p["status"] == "open"
+        ]
+        limit = max(1, min(100, int(request.get("limit", 20))))
+        rows = []
+        for proposal in proposals[-limit:]:
+            row = self._proposal_view(proposal)
+            row["tally"] = self._tally(proposal)
+            row["your_vote"] = proposal["votes"].get(int(agent_id))
+            rows.append(row)
+        return {
+            "status": "success",
+            "proposals": rows,
+            "count": len(rows),
+            "total_proposals_ever": len(self._proposals),
+        }
+
+    @tool(readonly=True)
+    async def read_townhall_proposal(self, agent_id: int, request: dict | None = None) -> dict:
+        """Read one authoritative Town Hall proposal.
+
+        :param agent_id: Requesting agent ID.
+        :param request: ``item_id`` or ``proposal_id`` identifies the proposal.
+        """
+        if not self._known_agent(agent_id):
+            return self._error("unknown agent_id")
+        request = request or {}
+        try:
+            proposal_id = int(request.get("item_id", request.get("proposal_id", 0)))
+        except (TypeError, ValueError):
+            return self._error("request.item_id must be an integer")
+        proposal = self._proposal(proposal_id)
+        if proposal is None:
+            return self._error(f"proposal {proposal_id} not found")
+        result = self._proposal_view(proposal)
+        result["tally"] = self._tally(proposal)
+        result["your_vote"] = proposal["votes"].get(int(agent_id))
+        return {"status": "success", "proposal": result}
+
+    @tool(readonly=False)
+    async def submit_townhall_proposal(self, agent_id: int, request: dict | None = None) -> dict:
+        """Open a Town Hall amendment using GovernanceSpace's proposal ID source.
+
+        :param agent_id: Proposing agent ID.
+        :param request: ``article_id``, ``title``, ``new_text`` and optional case metadata.
+        """
+        request = request or {}
+        async with self._lock:
+            return self._write_once(
+                "submit_townhall_proposal",
+                agent_id,
+                request,
+                lambda: self._create_public_proposal(agent_id, request),
+            )
+
+    @tool(readonly=False)
+    async def comment_on_proposal(self, agent_id: int, request: dict | None = None) -> dict:
+        """Append a discussion comment to an open Town Hall proposal.
+
+        :param agent_id: Commenting agent ID.
+        :param request: ``item_id`` and non-empty ``content``.
+        """
+        request = request or {}
+        async with self._lock:
+            def mutate() -> dict:
+                if not self._known_agent(agent_id):
+                    return self._error("unknown agent_id")
+                proposal_id = self._proposal_id_from_request(request)
+                proposal = self._proposal(proposal_id) if proposal_id is not None else None
+                if proposal is None:
+                    return self._error("request.item_id must identify an existing proposal")
+                if proposal["status"] != "open":
+                    return self._error("proposal is closed")
+                content = str(request.get("content", "")).strip()
+                if not content:
+                    return self._error("request.content is required")
+                comment = {
+                    "id": self._next_comment_id,
+                    "agent_id": int(agent_id),
+                    "content": content,
+                    "created_step": self._step_counter,
+                }
+                self._next_comment_id += 1
+                proposal.setdefault("comments", []).append(comment)
+                return self._success(
+                    proposal_id=proposal["id"],
+                    comment=copy.deepcopy(comment),
+                )
+            return self._write_once("comment_on_proposal", agent_id, request, mutate)
+
+    @tool(readonly=False)
+    async def update_proposal(self, agent_id: int, request: dict | None = None) -> dict:
+        """Let the proposer revise an open proposal without changing its ID.
+
+        :param agent_id: Proposer ID.
+        :param request: ``item_id`` plus ``title`` and/or ``new_text``.
+        """
+        request = request or {}
+        async with self._lock:
+            def mutate() -> dict:
+                if not self._known_agent(agent_id):
+                    return self._error("unknown agent_id")
+                proposal_id = self._proposal_id_from_request(request)
+                proposal = self._proposal(proposal_id) if proposal_id is not None else None
+                if proposal is None:
+                    return self._error("request.item_id must identify an existing proposal")
+                if proposal["proposer_id"] != int(agent_id):
+                    return self._error("only the proposer may update")
+                if proposal["status"] != "open":
+                    return self._error("proposal is closed")
+                changed = False
+                if "title" in request:
+                    proposal["title"] = str(request["title"]).strip()
+                    changed = True
+                if "new_text" in request:
+                    new_text = str(request["new_text"]).strip()
+                    if not new_text:
+                        return self._error("request.new_text must not be empty")
+                    proposal["new_text"] = new_text
+                    changed = True
+                for field in ("case_id", "artifact_id", "claim_status"):
+                    if field in request:
+                        proposal[field] = request[field]
+                        changed = True
+                if "evidence_refs" in request:
+                    proposal["evidence_refs"] = list(request["evidence_refs"] or [])
+                    changed = True
+                if not changed:
+                    return self._error("at least one proposal field is required")
+                proposal["updated_step"] = self._step_counter
+                return self._success(
+                    proposal_id=proposal["id"],
+                    proposal=self._proposal_view(proposal),
+                )
+            return self._write_once("update_proposal", agent_id, request, mutate)
+
+    @tool(readonly=False)
+    async def vote_on_proposal(self, agent_id: int, request: dict | None = None) -> dict:
+        """Cast one irreversible-for-this-proposal Town Hall vote.
+
+        :param agent_id: Voting agent ID.
+        :param request: ``item_id`` and ``position`` (``for`` or ``against``).
+        """
+        request = request or {}
+        async with self._lock:
+            def mutate() -> dict:
+                if not self._known_agent(agent_id):
+                    return self._error("unknown agent_id")
+                proposal_id = self._proposal_id_from_request(request)
+                proposal = self._proposal(proposal_id) if proposal_id is not None else None
+                if proposal is None:
+                    return self._error("request.item_id must identify an existing proposal")
+                if proposal["status"] != "open":
+                    return self._error("proposal is closed")
+                position = str(request.get("position", "")).strip().lower()
+                if position not in {"for", "against"}:
+                    return self._error("position must be for or against")
+                if int(agent_id) in proposal["votes"]:
+                    return self._error("one vote per agent per proposal")
+                proposal["votes"][int(agent_id)] = position
+                self._total_votes_cast += 1
+                tally = self._tally(proposal)
+                if tally["passed"]:
+                    self._apply_amendment(proposal)
+                    proposal["status"] = "passed"
+                    proposal["resolved_step"] = self._step_counter
+                elif tally["for"] + tally["against"] >= tally["live_voters_estimated"]:
+                    proposal["status"] = "rejected"
+                    proposal["resolved_step"] = self._step_counter
+                return self._success(
+                    proposal_id=proposal["id"],
+                    your_vote=position,
+                    tally=tally,
+                    proposal_status=proposal["status"],
+                )
+            return self._write_once("vote_on_proposal", agent_id, request, mutate)
+
+    @tool(readonly=False)
+    async def submit_final_report(self, agent_id: int, request: dict | None = None) -> dict:
+        """Attach an implementation or conclusion report to a passed proposal.
+
+        :param agent_id: Reporting agent ID.
+        :param request: ``item_id`` and ``report``; optional authorization and case metadata.
+        """
+        request = request or {}
+        async with self._lock:
+            def mutate() -> dict:
+                if not self._known_agent(agent_id):
+                    return self._error("unknown agent_id")
+                proposal_id = self._proposal_id_from_request(request)
+                proposal = self._proposal(proposal_id) if proposal_id is not None else None
+                if proposal is None:
+                    return self._error("request.item_id must identify an existing proposal")
+                if proposal["status"] != "passed":
+                    return self._error("final report requires a passed proposal")
+                authorized = request.get("authorized_agent_ids")
+                if authorized is not None and int(agent_id) not in {int(x) for x in authorized}:
+                    return self._error("agent is not authorized to submit the final report")
+                report = str(request.get("report", "")).strip()
+                if not report:
+                    return self._error("request.report is required")
+                proposal["final_report"] = {
+                    "agent_id": int(agent_id),
+                    "report": report,
+                    "case_id": request.get("case_id", proposal.get("case_id")),
+                    "artifact_id": request.get("artifact_id", proposal.get("artifact_id")),
+                    "submitted_step": self._step_counter,
+                }
+                return self._success(
+                    proposal_id=proposal["id"],
+                    final_report=copy.deepcopy(proposal["final_report"]),
+                )
+            return self._write_once("submit_final_report", agent_id, request, mutate)

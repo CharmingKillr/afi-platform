@@ -17,7 +17,9 @@ envs:                       # A4 adds EnergySpace (M1) + CrimeSpace (M2)
   - CrimeSpace
   - PlanningSpace            # B1: personal to-do and calendar tools
   - BlogSpace                # B1: domain-specific content tools
-  - EWToolSpace              # B1: remaining 89 public tools; specialized tools excluded
+  - BillboardSpace           # B4: public expression and evidence artifacts
+  - CommunitySpace           # B1: complaint/event/trust domain tools
+  - EWToolSpace              # B1: remaining 68 public tools; specialized tools excluded
 agents: full
 start_t: "2026-07-01T08:00:00"
 steps:

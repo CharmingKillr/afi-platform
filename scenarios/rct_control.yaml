@@ -1,0 +1,22 @@
+# RCT Control — no governance enforcement, crime allowed
+# Hypothesis A: governance intervention effect
+# Condition: control (no GovernanceSpace active enforcement, no CrimeSpace penalty)
+#
+# Run: python3.11 run_inprocess.py --config runs/rct_control_config/init_config.json
+#             --steps runs/rct_control_config/steps.yaml --run-dir runs/rct_control
+
+world:
+  initial_credits: 100
+  landmarks: full
+agents: full
+start_t: "2026-07-01T08:00:00"
+steps:
+  - type: run
+    num_steps: 12
+    tick: 3600
+  - type: run
+    num_steps: 12
+    tick: 3600
+  - type: run
+    num_steps: 12
+    tick: 3600

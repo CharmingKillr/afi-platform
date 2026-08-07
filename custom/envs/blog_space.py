@@ -17,6 +17,7 @@ from typing import ClassVar
 from agentsociety2.env import EnvBase, tool
 from agentsociety2.storage import ColumnDef
 from agentsociety2.storage.workspace_state import atomic_write_text
+from mcp.server.fastmcp.tools.tool_manager import ToolManager
 
 
 _STATE_REL = "state/BLOG_STATE.json"
@@ -64,7 +65,7 @@ class BlogSpace(EnvBase):
         ColumnDef("blog_comments", "INTEGER"),
     ]
 
-    def __init__(self, agent_ids: list[int] | None = None, **kwargs):
+    def __init__(self, agent_ids: list[int] | None = None, enabled_tools: list[str] | None = None, **kwargs):
         super().__init__()
         ids = [int(agent_id) for agent_id in (agent_ids or [1, 2, 3, 4, 5])]
         if not ids or len(ids) != len(set(ids)):
@@ -78,6 +79,31 @@ class BlogSpace(EnvBase):
         self._events: list[dict] = []
         self._lock = asyncio.Lock()
         self._dedup_lock = asyncio.Lock()
+
+        registered_names = set(self._registered_tools)
+        if enabled_tools is None:
+            allowed_tools = registered_names
+        else:
+            requested_names = [str(name) for name in enabled_tools]
+            if len(requested_names) != len(set(requested_names)):
+                raise ValueError("enabled_tools must not contain duplicate names")
+            requested_tools = set(requested_names)
+            unknown_tools = requested_tools - registered_names
+            if unknown_tools:
+                raise ValueError(f"unknown BlogSpace tools: {sorted(unknown_tools)}")
+            allowed_tools = requested_tools
+        self._enabled_tools = sorted(allowed_tools)
+        self._tool_manager = ToolManager(
+            tools=[tool_obj for name, tool_obj in self._registered_tools.items() if name in allowed_tools]
+        )
+        self._llm_tools = [
+            item for item in self._llm_tools
+            if item["function"]["name"] in allowed_tools
+        ]
+        self._readonly_llm_tools = [
+            item for item in self._readonly_llm_tools
+            if item["function"]["name"] in allowed_tools
+        ]
 
     @classmethod
     def description(cls) -> str:
@@ -98,6 +124,11 @@ Tools:
 - comment_on_blog(agent_id, blog_id, content): add a bounded comment
 - list_blogs(agent_id, limit?): list visible blogs
 - read_blog(agent_id, blog_id): read a visible blog
+
+PIC-001 may add ``case_id``, ``artifact_id``, ``claim_status`` and
+``evidence_refs`` to writes. These fields describe the claim state and
+references; they do not certify external truth. ``enabled_tools`` restricts
+the active router surface to an exact list.
 """
 
     @staticmethod
@@ -131,6 +162,48 @@ Tools:
     def _validate_status(status: str) -> str | None:
         value = str(status).strip().lower()
         return value if value in _VALID_STATUS else None
+
+    @staticmethod
+    def _validate_case_metadata(
+        case_id: str | None,
+        artifact_id: str | None,
+        claim_status: str | None,
+        evidence_refs: list[str] | None,
+    ) -> tuple[dict, str | None]:
+        allowed_claim_status = {"unverified", "supported", "refuted", "blocked"}
+        if case_id is not None:
+            case_id = str(case_id).strip()
+            if not case_id or len(case_id) > 80:
+                return {}, "case_id must be a non-empty string of at most 80 characters"
+        if artifact_id is not None:
+            artifact_id = str(artifact_id).strip()
+            if not artifact_id or len(artifact_id) > 160:
+                return {}, "artifact_id must be a non-empty string of at most 160 characters"
+        if claim_status is not None:
+            claim_status = str(claim_status).strip().lower()
+            if claim_status not in allowed_claim_status:
+                return {}, f"claim_status must be one of {sorted(allowed_claim_status)}"
+        if evidence_refs is not None:
+            if not isinstance(evidence_refs, list) or len(evidence_refs) > 50:
+                return {}, "evidence_refs must be a list with at most 50 entries"
+            normalized_refs = []
+            for reference in evidence_refs:
+                reference = str(reference).strip()
+                if not reference or len(reference) > 500:
+                    return {}, "each evidence reference must be non-empty and at most 500 characters"
+                normalized_refs.append(reference)
+            evidence_refs = normalized_refs
+        metadata = {}
+        if case_id is not None:
+            metadata["case_id"] = case_id
+            metadata["claim_status"] = claim_status or "unverified"
+        elif claim_status is not None:
+            metadata["claim_status"] = claim_status
+        if artifact_id is not None:
+            metadata["artifact_id"] = artifact_id
+        if evidence_refs is not None:
+            metadata["evidence_refs"] = evidence_refs
+        return metadata, None
 
     def _visible(self, agent_id: int, blog: dict) -> bool:
         return blog["visibility"] == "public" or blog["owner_id"] == agent_id
@@ -232,8 +305,17 @@ Tools:
         content: str,
         visibility: str = "public",
         status: str = "draft",
+        case_id: str | None = None,
+        artifact_id: str | None = None,
+        claim_status: str | None = None,
+        evidence_refs: list[str] | None = None,
     ) -> dict:
-        """Create a validated blog draft or published post."""
+        """Create a validated blog draft or published post.
+
+        Optional case metadata makes the post auditable in PIC-001. A case
+        post defaults to ``unverified``; a URL or reference is never treated
+        as verified merely because it has valid syntax.
+        """
         async with self._lock:
             agent_id = int(agent_id)
             if not self._known_agent(agent_id):
@@ -250,10 +332,17 @@ Tools:
             status = self._validate_status(status)
             if status is None:
                 return self._error("status must be draft or published")
+            metadata, metadata_error = self._validate_case_metadata(
+                case_id, artifact_id, claim_status, evidence_refs
+            )
+            if metadata_error:
+                return self._error(metadata_error)
             if len(self._blogs) >= _MAX_BLOGS:
                 return self._error("blog capacity reached")
             blog_id = self._next_blog_id
             self._next_blog_id += 1
+            if metadata.get("case_id") and not metadata.get("artifact_id"):
+                metadata["artifact_id"] = f"blog:{blog_id}"
             blog = {
                 "id": blog_id,
                 "owner_id": agent_id,
@@ -264,9 +353,19 @@ Tools:
                 "created_step": self._step_counter,
                 "updated_step": self._step_counter,
                 "comments": [],
+                **metadata,
             }
             self._blogs[blog_id] = blog
-            self._record_event("blog_created", agent_id, blog_id, status=status, visibility=visibility)
+            self._record_event(
+                "blog_created",
+                agent_id,
+                blog_id,
+                status=status,
+                visibility=visibility,
+                case_id=blog.get("case_id"),
+                artifact_id=blog.get("artifact_id"),
+                claim_status=blog.get("claim_status"),
+            )
             return self._success(blog=dict(blog))
 
     @tool(readonly=False)
@@ -279,8 +378,12 @@ Tools:
         content: str | None = None,
         visibility: str | None = None,
         status: str | None = None,
+        case_id: str | None = None,
+        artifact_id: str | None = None,
+        claim_status: str | None = None,
+        evidence_refs: list[str] | None = None,
     ) -> dict:
-        """Update an owned blog with validated optional fields."""
+        """Update an owned blog with validated optional fields and case metadata."""
         async with self._lock:
             agent_id, blog, error = self._validate_agent_and_blog(agent_id, blog_id)
             if error:
@@ -308,6 +411,17 @@ Tools:
                 if status is None:
                     return self._error("status must be draft or published")
                 changes["status"] = status
+            metadata_requested = any(
+                value is not None
+                for value in (case_id, artifact_id, claim_status, evidence_refs)
+            )
+            if metadata_requested:
+                metadata, metadata_error = self._validate_case_metadata(
+                    case_id, artifact_id, claim_status, evidence_refs
+                )
+                if metadata_error:
+                    return self._error(metadata_error)
+                changes.update(metadata)
             if not changes:
                 return self._error("at least one editable field is required")
             blog.update(changes)

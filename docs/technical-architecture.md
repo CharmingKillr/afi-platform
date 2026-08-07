@@ -256,7 +256,7 @@ python -m afi run-ew scenarios/ew-subset.yaml --run-dir runs/ew_subset --audit
 
 **AWI 9 族（不是 11）**：EW `awi_metrics.md` 权威定义 + AFI `awi.py` 都是 9 族 M1–M9（AFI dataclass ~14 字段因 M2/M8 含子项，故有"11"误传）。可行性分层：
 - **全算**：M4（trace react.tool 按 agent 去重）/M5（governance_env_state + GOVERNANCE_STATE：参与率+通过率+羊群比）/M8（economy_agent_state 每 agent 每 step currency→Gini+turnover）/M9（version+proposals passed/rejected）
-- **代理**：M3（landmark 查询计数，非真移动）/M6（send_message 量，非真 blog/billboard）/M7（message_log 有向边→密度，无关系类型）
+- **条件计算/代理回退**：M3（启用 EWMobilitySpace + replay 时计算，否则 landmark 查询 proxy）/M6（Billboard 状态或事件日志存在时计算，否则 send_message proxy）/M7（启用 RelationshipSpace + replay 时计算 typed graph，否则 message_log proxy）。
 - **stub/退化**：M1（AS 不建模死亡，N 常量）/M2（无 crime env，0）—— 诚实标注不造假。
 
 **`_gini` 校准**：A2 阶段曾踩 `2·n·mean` 分母 bug（Gini>1 不可能），A3 直接搬 AFI 已验证 `2·n²·mean` + 单测（等分→0、独占→(n-1)/n）。
@@ -313,7 +313,7 @@ python -m afi run-ew scenarios/ew-subset.yaml --run-dir runs/ew_subset --audit
 | 维度 | 预期（路线目标） | 已完成 | 完成度 |
 |---|---|---|---|
 | **平台闭环** | 跑长时程→监控→AWI→跨模型→对标 | A1 骨架→A2 EW 子集→A3 AWI+监控→A4 多模型+对标，全通 | ✅ 100% |
-| **AWI 9 族** | 9 族全真实可算 | M1/M2/M4/M5/M8/M9 全算（6）；M3/M6/M7 代理（3） | 6/9 真 + 3 代理 |
+| **AWI 9 族** | 9 族全真实可算 | M1/M2/M4/M5/M8/M9 默认真算；M6 Billboard 可算；M3/M7 由 opt-in 环境 replay 驱动 | 默认 6 真 + M6 已接，M3/M7 场景化待验证 |
 | **EW 设定翻译** | 宪法/地标/工具/经济/治理 | 公开工具目录 113/113 + 宪法/治理/经济/社交/地标/能量/犯罪 | 公开目录与路由完整；逐工具语义、地图/外部 provider 仍有边界 |
 | **长时程** | 15 天 × 10 agent | 15 sim-天（1 步/天压缩）× 5 agent × 3 模型 | 压缩版（非逐小时全量） |
 | **多模型** | 5 世界对照 | 3 百炼模型（qwen-plus/max/turbo） | 3/5（够对照） |
@@ -324,15 +324,15 @@ python -m afi run-ew scenarios/ew-subset.yaml --run-dir runs/ew_subset --audit
 
 | 项 | 为什么差 | 影响 | 难度 |
 |---|---|---|---|
-| **MobilitySpace 地图（M3 真）** | 需 pyproj+pycityproto+map.pb 城市数据，依赖重 | M3 仍代理（地标可点名不可走动） | 高（依赖+数据） |
-| **关系模型（M7 真）** | EW 有 ally/rival/mentor 类型，需 RelationshipSpace | M7 只能算网络密度，无关系类型 | 中 |
-| **Billboard/Blog 接入 M6** | B1 已有独立工具，但 AWI 尚未读取其状态 | M6 用 send_message 代理 | 中 |
-| **EW 工具目录** | B1 已完成公开目录 113/113；项目“120+”口径含未公开/历史项 | 名称、唯一实现者、路由和 M4 已覆盖；BlogSpace 已领域化，89 个通用工具待逐类语义验收 | 🟡 |
+| **MobilitySpace 地图（M3 真）** | PR #2 已提供轻量地标 recorder；真实 map.pb 仍需依赖和数据 | EWMobilitySpace 已可 opt-in，默认场景不启用，真实 Agent trace 未验收 | 高（依赖+数据） |
+| **关系模型（M7 真）** | PR #2 已提供 typed RelationshipSpace 和 AWI reader | 已可 opt-in 并读取 replay；默认场景未启用，真实自主关系 trace 未验收 | 中 |
+| **Billboard/Blog 接入 M6** | BillboardSpace 已有独立工具、replay 和事件日志 | M6 已优先读取 Billboard；Blog↔Billboard 跨域传播链和真实 trace 仍待补 | 中 |
+| **EW 工具目录** | B1 已完成公开目录 113/113；项目“120+”口径含未公开/历史项 | 名称、唯一实现者、路由和 M4 已覆盖；BlogSpace/BillboardSpace/CommunitySpace 已首批领域化，62 个本地通用工具已具备第一轮领域状态路径，仍待逐类精确语义验收 | 🟡 |
 | **10 agent × 360 tick × 5 全量** | 成本不可行（~A2×250） | 长时程是压缩版 | 高（成本） |
-| **完整 pydantic DSL schema** | A2 lite loader 够用 | 场景校验弱 | 低 |
+| **完整 pydantic DSL schema** | A2 lite loader 够用 | pydantic v2 延迟校验已合并，env/tool 级 schema 仍可扩展 | 低 |
 | **统计显著性** | 样本太小（n=1/model） | CI 宽，仅趋势 | 中（需多 seed） |
 | **crime/energy 自发涌现** | LLM helper 不稳定调变异工具 | 靠 intervene 种子，非纯涌现 | 中（研究性） |
 
 ### 12.3 一句话总结
 
-afi-platform **闭环 100% 跑通**（A1–A4），B1 公开工具目录 113/113 已接入，AWI 6/9 真算 + 3 代理。剩余工作包括通用工具领域语义验收、地图、关系指标、外部 provider、全量运行和统计 power，不是闭环或工具注册缺失。
+afi-platform **闭环 100% 跑通**（A1–A4），B1 公开工具目录 113/113 已接入。PR #2 的 Mobility/Relationship/Eval/Concordia 代码已合入，但地图与关系环境仍是 opt-in，真实模型/外部后端验证未完成；剩余工作包括通用工具领域语义验收、真实地图/关系 trace、Blog/Billboard 跨域传播、外部 provider、全量运行和统计 power。

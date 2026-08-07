@@ -179,7 +179,32 @@ def run_monitor(run_dir: str | Path) -> List[RiskAlert]:
     _check_governance_stagnation(run_dir, timeline, alerts)
     _check_economic_hoarding(run_dir, timeline, alerts)
     _check_tunnel_vision_escalation(run_dir, timeline, alerts)
+    _check_group_behavior(run_dir, alerts)
     return alerts
+
+
+def _check_group_behavior(run_dir: str, alerts: List[RiskAlert]):
+    """Run group behavior analysis and convert alerts to RiskAlerts."""
+    try:
+        from afi.audit.group_behavior import run_group_behavior_analysis, GroupBehaviorAlert
+    except ImportError:
+        return
+
+    try:
+        _, group_alerts = run_group_behavior_analysis(run_dir)
+    except Exception:
+        return
+
+    severity_map = {"info": "info", "warning": "warning", "critical": "critical"}
+    for ga in group_alerts:
+        alerts.append(RiskAlert(
+            tick=ga.step,
+            alert_type=ga.alert_type,
+            value=ga.value,
+            threshold=ga.threshold,
+            severity=severity_map.get(ga.severity, "info"),
+            message=ga.message,
+        ))
 
 
 def format_alerts(alerts: List[RiskAlert]) -> str:

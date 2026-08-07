@@ -17,6 +17,7 @@ from agentsociety2.env import EnvBase, tool
 from agentsociety2.logger import get_logger
 from agentsociety2.storage import ColumnDef
 from agentsociety2.storage.workspace_state import atomic_write_text
+from mcp.server.fastmcp.tools.tool_manager import ToolManager
 
 _STATE_REL = "state/ENV_STATE.json"
 _logger = get_logger()
@@ -63,6 +64,7 @@ class EconomySpace(EnvBase):
         bank_interest_rate: float = 0.01,
         loan_interest_rate: float = 0.02,
         pitch_cycle_days: int = 2,
+        enabled_tools: list[str] | None = None,
         **kwargs,
     ):
         if kwargs:
@@ -98,6 +100,31 @@ class EconomySpace(EnvBase):
         self._lock = asyncio.Lock()
         self._dedup_lock = asyncio.Lock()
 
+        registered_names = set(self._registered_tools)
+        if enabled_tools is None:
+            allowed_tools = registered_names
+        else:
+            requested_names = [str(name) for name in enabled_tools]
+            if len(requested_names) != len(set(requested_names)):
+                raise ValueError("enabled_tools must not contain duplicate names")
+            requested_tools = set(requested_names)
+            unknown_tools = requested_tools - registered_names
+            if unknown_tools:
+                raise ValueError(f"unknown EconomySpace tools: {sorted(unknown_tools)}")
+            allowed_tools = requested_tools
+        self._enabled_tools = sorted(allowed_tools)
+        self._tool_manager = ToolManager(
+            tools=[tool_obj for name, tool_obj in self._registered_tools.items() if name in allowed_tools]
+        )
+        self._llm_tools = [
+            item for item in self._llm_tools
+            if item["function"]["name"] in allowed_tools
+        ]
+        self._readonly_llm_tools = [
+            item for item in self._readonly_llm_tools
+            if item["function"]["name"] in allowed_tools
+        ]
+
     @classmethod
     def description(cls) -> str:
         return "EW ComputeCredits economy: wallets, payments, Victory Arch pitches, and Central Bank."
@@ -111,6 +138,12 @@ transact_compute_credits; submit_grant_pitch, vote_for_pitch and
 list_credit_pitches; and the five Central Bank deposit/withdraw/loan tools.
 Pitch cycles close every two simulation days and award 20/10/10 CC to the top
 three eligible evidence-backed pitches.
+
+``submit_grant_pitch`` accepts optional PIC-001 case/artifact metadata. The
+local resolver distinguishes URL syntax, a matching ``local://blog/<id>``
+reference, and actual content verification; the last one remains false until
+an external provider is configured. ``enabled_tools`` restricts the active
+router surface to an exact list.
 """
 
     async def init(self, start_datetime: datetime):
@@ -340,13 +373,27 @@ three eligible evidence-backed pitches.
 
     @tool(readonly=False)
     @idempotent_write
-    async def submit_grant_pitch(self, agent_id: int, title: str, description: str, evidence_url: str) -> dict:
+    async def submit_grant_pitch(
+        self,
+        agent_id: int,
+        title: str,
+        description: str,
+        evidence_url: str,
+        case_id: str | None = None,
+        artifact_id: str | None = None,
+        evidence_refs: list[str] | None = None,
+        claim_status: str | None = None,
+    ) -> dict:
         """Submit one evidence-backed contribution pitch in the current cycle.
 
         :param agent_id: Pitching agent ID.
         :param title: Short contribution title.
         :param description: Contribution and impact description.
         :param evidence_url: URL of a verifiable blog, code, or data artifact.
+        :param case_id: Optional scenario case identifier, such as PIC-001.
+        :param artifact_id: Optional local/public artifact identifier.
+        :param evidence_refs: Optional list of related references.
+        :param claim_status: Optional claim state; it is not proof of verification.
         """
         async with self._lock:
             if not self._person(agent_id):
@@ -354,15 +401,50 @@ three eligible evidence-backed pitches.
             if any(p["cycle"] == self._pitch_cycle and p["agent_id"] == agent_id for p in self._pitches):
                 return self._error("one pitch per agent per cycle")
             evidence_url = evidence_url.strip()
-            eligible = evidence_url.startswith(("http://", "https://"))
+            url_format_valid = evidence_url.startswith(("http://", "https://", "local://"))
+            local_reference_valid = (
+                isinstance(artifact_id, str)
+                and artifact_id.startswith("blog:")
+                and evidence_url.startswith("local://blog/")
+                and evidence_url.removeprefix("local://") == artifact_id.replace(":", "/", 1)
+            )
+            evidence_refs = list(evidence_refs or [])
+            if len(evidence_refs) > 50:
+                return self._error("evidence_refs must contain at most 50 entries")
+            if claim_status is not None:
+                claim_status = str(claim_status).strip().lower()
+                if claim_status not in {"unverified", "supported", "refuted", "blocked"}:
+                    return self._error("invalid claim_status")
+            eligible = url_format_valid
             pitch = {
                 "id": self._next_pitch_id, "cycle": self._pitch_cycle, "agent_id": agent_id,
                 "title": title, "description": description, "evidence_url": evidence_url,
-                "eligible": eligible, "votes": [], "submitted_step": self._step_counter,
+                "eligible": eligible,
+                "case_id": case_id,
+                "artifact_id": artifact_id,
+                "claim_status": claim_status or ("unverified" if case_id else None),
+                "evidence_refs": evidence_refs,
+                "url_format_valid": url_format_valid,
+                "artifact_reference_valid": local_reference_valid,
+                "artifact_resolvable": local_reference_valid,
+                "evidence_verified": False,
+                "verification_status": (
+                    "local_reference_resolved"
+                    if local_reference_valid
+                    else "pending_content_lookup"
+                    if url_format_valid
+                    else "invalid_reference"
+                ),
+                "votes": [], "submitted_step": self._step_counter,
             }
             self._next_pitch_id += 1
             self._pitches.append(pitch)
-            return self._success(pitch=dict(pitch), warning=None if eligible else "invalid evidence URL; pitch is ineligible")
+            warning = None
+            if not url_format_valid:
+                warning = "invalid evidence reference; pitch is ineligible"
+            elif not local_reference_valid:
+                warning = "reference format accepted, but artifact content is not resolved or verified"
+            return self._success(pitch=dict(pitch), warning=warning)
 
     @tool(readonly=False)
     @idempotent_write

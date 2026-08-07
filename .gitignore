@@ -45,3 +45,6 @@ demo/.vite/
 
 # ── private/local docs (personal notes, not for public repo) ──
 docs/测试套件-通俗理解.md
+
+# ── local Feishu Slides intermediates ─────────────────────
+.lark-slides/

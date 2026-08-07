@@ -17,62 +17,57 @@
 ## 二、Backlog：还没做的（按难度/优先级）
 
 ### B1. EW 工具补全 🟡（目录与路由完成；领域语义持续补全）
-- **已完成**：EW 当前公开 `tools/README.md` 共 113 个唯一名称，已 113/113 注册且在 `ew_full.yaml` 中每个名称只有一个实现者。规划类 6 个由 `PlanningSpace` 负责；内容类 6 个由 `BlogSpace` 负责；其他专用环境负责 12 个；剩余 89 个由 `EWToolSpace` 提供通用实现。
+- **已完成**：EW 当前公开 `tools/README.md` 共 113 个唯一名称，已 113/113 注册且在 `ew_full.yaml` 中每个名称只有一个实现者。规划类 6 个由 `PlanningSpace` 负责；Blog 内容类 6 个由 `BlogSpace` 负责；Billboard 公开表达类 6 个由 `BillboardSpace` 负责；其他专用环境负责 21 个；剩余 74 个由 `EWToolSpace` 承载（其中 68 个本地通用实现、6 个 provider boundary）。
 - **边界说明**：EW 的“120+”包含演进中的历史/内部工具，公开仓库当前只能逐项核验 113 个。实时新闻、网页、论文、天气、图片生成采用 `in_progress` provider 请求接口；未配置 provider 时不伪造结果。
 - **实现**：`afi/world/ew_tools.py` 固化可审计目录；`EWToolSpace` 采用声明式注册、分类门控、有界查询、同 step 幂等、Replay 快照和 resume；agent 操作说明随模块分发。
-- **还需完成**：将 89 个通用实现按领域逐步升级为精确签名、权限、状态机、幂等、审计事件和真实 Agent 场景均已验收的专用实现；BlogSpace 仍需补真实 Agent trace 和完整审核工作流。
+- **还需完成**：将 68 个本地通用实现按领域逐步升级为精确签名、权限、状态机、幂等、审计事件和真实 Agent 场景均已验收的专用实现；BlogSpace/BillboardSpace 仍需补真实 Agent trace 和完整跨域审核工作流。
 - **验收**：覆盖测试锁定 113/113 且拒绝重复实现者；pytest 进入 CI；标准 `react.action` spans 中的新工具由 M4 正确去重计数。
 - **注意**：工具名/语义要贴 EW 原文，别自创；EW 是研究用 license，别直接搬代码，按设定重写。
 
-### B2. MobilitySpace 地图（M3 从代理升真算）— 难度高·依赖重
-- **缺什么**：M3 现在是代理（landmark 查询计数，非真移动）。`afi/audit/map_places.py`+`map_bg.py` 已写好但**没数据没依赖**跑不了。
-- **为什么没做**：需 `pyproj`+`pycityproto`+城市 `.pb` map 数据（依赖重 + 数据大，不入 git）。
-- **怎么做**：`pip install -e ".[map]"` 装可选依赖；按 AS 的 MobilitySpace 文档准备 `.pb` 城市数据（OSM 抽取）；场景 YAML 加 `MobilitySpace` 到 envs；验证 `map_places.py` 出地标坐标 + agent 轨迹。
-- **验收**：M3 feasibility 从 `proxy` 升 `computed`；HTML 报告里位置轨迹块有真实坐标。
-- **注意**：`.pb` 数据**别提交**（加 .gitignore）；mac 零 GPU 也能跑（AS 设计如此）；`replay_data.py:141` 已有 MobilitySpace replay 读取代码可复用。
+### B2. MobilitySpace 地图（M3 从代理升真算）— 🟡代码已合并，场景验证待补
+- **已合并**：PR #2 提供 `custom/envs/ew_mobility_space.py` 和 AWI `_m3_mobility_computed()`；当前版本已将 `EWMobilitySpace` 注册为可选场景模块，相关单测纳入全量测试。
+- **当前边界**：这是基于 EW 命名地标坐标的轻量 recorder，不等同于真实城市 `.pb` 地图；`ew_full.yaml` 与 PIC-001 默认不启用它，因此默认场景的 M3 仍是 proxy。
+- **下一步**：如需 M3 真算，准备 `pyproj`/`pycityproto` 与城市 `.pb` 数据，或明确采用轻量地标模式，再在专门 YAML 中启用并跑真实 Agent trace。
+- **注意**：`.pb` 数据**别提交**；没有真实轨迹证据时不能把 B2 标成地图验收完成。
 
-### B3. RelationshipSpace（M7 从代理升真算）— 中等
-- **缺什么**：M7 现在只算消息图密度（无向边），没关系类型。EW 有 ally/rival/mentor 等关系类型。
-- **怎么做**：新建 `custom/envs/relationship_space.py`（仿 governance_space.py 模式：EnvBase 子类 + state JSON + 工具 expose）；定义关系类型枚举 + add/query 关系工具；AWI `_m7_social` 改读 relationship_env_state。
-- **验收**：M7 feasibility `proxy→computed`；agent 能建立/查询关系；AWI 报关系类型分布。
-- **注意**：关系是 agent 间结构，要 append-only + per-step replay 快照（照 energy_space 的 `energy_agent_state` 模式）。
+### B3. RelationshipSpace（M7 从代理升真算）— 🟡代码已合并，场景验证待补
+- **已合并**：PR #2 提供 `RelationshipSpace`、五类关系枚举、关系操作工具、state/log/replay 和 AWI typed relationship reader；当前版本已注册为可选场景模块，并把类型分布暴露到 `AWISnapshot`。
+- **当前边界**：PIC-001 与 `ew_full.yaml` 默认不挂载该环境，现有证据是离线 replay fixture 和单测，不是完整 Agent 自主建立关系的 trace。
+- **下一步**：在独立关系验证 YAML 中启用环境，补 form/query/dissolve 的权限、幂等和真实 Agent trace，再把 M7 从 proxy 结论升级为场景级 computed。
+- **注意**：没有真实关系 replay 时，报告必须继续标记 M7 为 proxy。
 
-### B4. Billboard/Blog 公开表达（M6 从代理升真算）— 中等
-- **缺什么**：M6 现在用 `send_message` 量代理（私信非公开表达）。EW 的公开表达是独立工具（Billboard 广告牌 / Blog）。
-- **怎么做**：新建 `custom/envs/billboard_space.py`（公开 append-only 留言板）；expose post_to_billboard/read_billboard 工具；AWI `_m6` 改读 billboard_log。
-- **验收**：M6 `proxy→computed`；公开 vs 私信区分开。
+### B4. Billboard/Blog 公开表达（M6 从代理升真算）— 已完成第一阶段
+- **已完成**：新建 `custom/envs/billboard_space.py`（公开 append-only 事件与软删除审计）；6 个 Billboard 工具采用显式领域参数，并接入 `ew_full.yaml` 与 PIC-001。
+- **已完成**：AWI `_m6` 优先读取 `billboard_env_state` / `billboard_event_log.jsonl`，没有 Billboard 数据的历史 run 仍明确降级为 send_message proxy。
+- **剩余**：Blog 与 Billboard 的跨域引用链、真实 Agent trace 和多 run 指标校准仍需补充。
 - **注意**：现在 `landmark_space.py` 里有个"Agent Billboard"文本地标（不是真工具）——别混淆，那是设定地标不是表达工具。
 
-### B5. 完整 pydantic scenario DSL — 低难度
-- **缺什么**：`afi/world/scenario.py::load_scenario` 现在只是 `yaml.safe_load`（无 schema 校验）。场景写错（env 名拼错/缺字段）跑到 AS 才报错。
-- **怎么做**：加 `pydantic` 模型（Scenario/Agent/Env/World/Step），load_scenario 改 `Scenario.model_validate`；optional dep `pydantic` 进 pyproject `[yaml]` extra 或单独 extra。
-- **验收**：故意写错的场景 YAML 在 load 时就报清晰错（不用等 AS 跑）。
-- **注意**：保持向后兼容（现有 ew-subset/ew_full.yaml 要还能 load）；pydantic 是 optional（别让它成核心依赖）。
+### B5. 完整 pydantic scenario DSL — ✅代码已合并
+- **已完成**：`load_scenario()` 在 pydantic v2 可用时执行延迟 schema 校验；非法 step 类型会在加载阶段给出字段级 `ValueError`，无 pydantic 时保持向后兼容。
+- **验收证据**：`tests/test_awi_and_envs.py` 覆盖合法场景与非法 step；全量测试通过。
+- **边界**：pydantic 仍是可选能力，当前 schema 对额外场景字段保持允许，不能替代运行时的 env registry/工具契约检查。
 
-### B6. Concordia 后端适配器 — 中等·兑现"后端可换"claim
-- **缺什么**：`afi/backend/base.py` 有 `BackendAdapter` ABC，只有 `agentsociety.py` 一个实现。`base.py` 注释提过"a future Concordia adapter would live in concordia.py"——没实现。
-- **怎么做**：新建 `afi/backend/concordia.py`，实现 `BackendAdapter`（scenario→Concordia 格式→跑→run_dir）；CLI 加 `--backend concordia` 选项。
-- **验收**：同一场景 YAML 能在 AS 和 Concordia 两个后端跑（audit 层不变，证明后端无关）。
-- **注意**：审计层（`afi/audit/`）必须保持后端无关（只读 run_dir，不 import 后端）——这是核心架构不变量，别破坏。
+### B6. Concordia 后端适配器 — 🟡代码已合并，真实后端待验证
+- **已合并**：`afi/backend/concordia.py`、worker 和 `ConcordiaAdapter` 已纳入；适配器生成与 AS 审计层兼容的 run_dir，审计层仍不依赖具体后端。
+- **当前边界**：本机没有完成真实 Concordia 安装与运行验证；worker 的 stub/兼容路径不能等同于真实 Concordia 实验。
+- **下一步**：准备可用 Concordia 环境，用同一场景分别运行 AS 与 Concordia，比较 trace/replay/AWI 输出后再关闭 B6。
 
-### B7. 测试套件（缓做，但也是缺口）— 中等
-- **缺什么**：平台建了仪器没建考卷——无 ground-truth label → 说不了"检测器准不准/多早/比基线强多少"。
-- **现状**：`docs/eval-suite-goals.md`+`eval-suite-plan.md` 已写目标+plan；L1 标签与评分代码仍未完成。
-- **怎么做**：按 `eval-suite-plan.md` 三层（L1 精标核心 / L2 参数化扩展 / L3 任意YAML）实现 `eval/` 子包；先 L1（6 注入场景+label+scoring）。
-- **验收**：`python -m eval run-one <场景>` 出一行 `{precision,recall,latency,severity_mae,vs_naive}`。
-- **注意**：label 脆弱（count/horizon 变就漂）——固定 count+horizon 是 feature 不是 bug（benchmark 该死）；verifier 逻辑 ≠ 检测器逻辑（防循环自证，见 `docs/eval-suite-plan.md`）。
+### B7. 测试套件 — ✅离线评测框架已合并，真实模型运行待补
+- **已完成**：PR #2 纳入 L1/L2/L3 `eval/` 包、7 个标注场景、评分/verifier/grid/report/CLI，以及群体行为、因果和 NLG 相关审计模块。
+- **验收证据**：PR 自带 25 个评测单测；与当前 PIC-001/B1 测试合并后，本地全量为 `115 passed`。
+- **当前边界**：模型/API 不可用时不能声称完成真实跨模型评测；历史 `b8_qwen_cooperative` 结果仍需按报告边界解读。
 
 ### B8. 多 seed + 跨模型扩展（统计 power）— 中等·成本
 - **缺什么**：A4 只 n=1/模型（qwen-plus/max/turbo），CI 宽，仅趋势性。formal 显著性要 30+ run。
-- **怎么做**：扩 `multi_model.py` 支持 multi-seed；跑 6 模板×3 agent数×3 模型×3 seed ≈ 160 run（见 `eval-suite-plan.md` L2）。
+- **已合并**：`eval/grid.py` 与 `eval/run_eval.py` 已支持 templates×models×seeds 网格及 CSV/CI95 聚合；当前仍没有新增真实模型 run。
+- **怎么做**：拿到有效模型服务后跑 6 模板×3 agent数×3 模型×3 seed ≈ 160 run（见 `eval-suite-plan.md` L2）。
 - **验收**：per-model recall/precision 带 CI95；跨模型差异能标"显著/趋势"。
 - **注意**：成本（每 run 几分钟+API token）；先跑子集验证 pipeline 再全量；非 qwen 模型（Claude/GPT 系）需对应 API key。
 
-### B9. `tests/` 填充（单元测试）— 低难度·高价值
-- **缺什么**：已有 B1 环境测试，但核心模块（`awi._gini`、`causal._resolve_tick`、`attribution.localize_first_domino`、`scenario.build_init_config`）仍需补充独立 fixture 单测。
-- **怎么做**：用 pytest（已在 `[dev]` extra）写：Gini 边界（等分→0/独占→(n-1)/n）、_resolve_tick 读 step.count 不读 agent.tick=3600、localize 命中 missed_recharge、scenario load+build。
-- **验收**：`pytest tests/` 全绿。
-- **注意**：单测用现有 run 数据（`runs/ew_multi/` 本地有，但 .gitignore 排了——测试 fixture 要自带小样本或 skip 无数据时）。
+### B9. `tests/` 填充 — ✅本地单测已合并
+- **已完成**：PR #2 纳入 AWI、场景 DSL、环境导入、评测评分和群体行为单测；当前又补充了 registry 对新环境和 PIC-001 工具契约的覆盖。
+- **验收证据**：当前工作区全量 `pytest -q` 为 `115 passed`。
+- **注意**：全量通过只证明离线代码契约，不代表模型调用、真实地图、真实 Concordia 或 PIC-001 自主闭环已经通过。
 
 ### B10. 论文/文档 — 持续
 - **缺什么**：路线图 M4 出成果阶段，未进入论文写作。
@@ -84,7 +79,7 @@
 ## 三、环境/协作注意事项
 
 ### AS 后端（双模式）
-- 只读命令（`audit`/`awi`/`attribution` 无 `--counterfactual`）**不调 AS**，clone 后 `pip install -e .[yaml]` 就能跑。
+- 只读命令（`audit`/`awi`/`attribution` 无 `--counterfactual`）**不调 AS**，clone 后 `pip install -e .` 就能跑；完整仿真再安装 `.[full]`。
 - 跑模拟（`run-ew`/`multi-run`/`attribution --counterfactual`）需 AS 后端：`pip install agentsociety2`（pip 模式）或 `export AS_HOME=<AS checkout>`（checkout 模式，见 README）。
 - API key 放项目根 `.env`（pip 模式）或 `$AS_HOME/.env`（checkout 模式）——**.env 已被 .gitignore，别提交密钥**。
 
@@ -105,14 +100,14 @@
 
 ```
 平台闭环 ✅ 100%（A1-A4）
-  ├ AWI 9 族：6 真算 ✅ | 3 代理 ⏳(B2 M3 / B3 M7 / B4 M6)
-  ├ EW 设定：目录/路由 113/113 ✅ | 逐工具领域验收 ⏳(B1) | 地图 ⏳(B2)
+  ├ AWI 9 族：6 真算 ✅ | M3/M7 需 opt-in replay，M6 已接 Billboard
+  ├ EW 设定：目录/路由 113/113 ✅ | Billboard 首批领域验收 ✅，其余 68 个 generic ⏳(B1) | 地图 ⏳(B2)
   ├ 长时程：压缩版 ✅ | 全量 ⏳(B8 成本)
   ├ 多模型：3/5 ✅ | 统计power ⏳(B8)
-  ├ 后端：AS ✅ | Concordia ⏳(B6)
-  ├ DSL：lite ✅ | pydantic ⏳(B5)
-  ├ 测试：⏳(B7 label套件 + B9 单测)
+  ├ 后端：AS ✅ | Concordia 代码合并、真实运行 ⏳(B6)
+  ├ DSL：lite ✅ | pydantic 校验 ✅(可选)
+  ├ 测试：离线评测/单测 ✅ | 真实模型评测 ⏳(B7/B8)
   └ 论文：⏳(B10)
 ```
 
-挑一个 `⏳` 开干。建议入门顺序：**B9（单测，最低门槛）→ B5（pydantic DSL）→ B3/B4（M7/M6 真算，中等）→ B6（Concordia）→ B2（地图，量大）**。
+当前最值得继续的是：**B1 通用工具领域化 → B2 真实地图/移动 trace → B3 关系场景 trace → B6 真实 Concordia → B8 多 seed/跨模型**。
